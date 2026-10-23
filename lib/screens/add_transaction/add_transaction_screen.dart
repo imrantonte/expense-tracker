@@ -147,6 +147,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     if (!mounted) return;
 
+    // Reschedule reminders from now if "Skip if already logged" is on.
+    context.read<AppState>().rescheduleAfterTransaction();
+
     // For income or edits: just pop with a confirmation.
     if (!_isExpense || isEditing) {
       _snack(isEditing ? 'Transaction updated.' : 'Income saved.');

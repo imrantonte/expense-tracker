@@ -10,6 +10,7 @@ import '../repositories/category_repository.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/transaction_repository.dart';
 import '../repositories/user_repository.dart';
+import '../services/reminder_service.dart';
 import 'mock_data.dart' as mock;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,6 +158,8 @@ class AppState extends ChangeNotifier {
     _managedCategories = [];
     _hasPendingWrites = false;
     _txFirstLoadFailed = false;
+    // Cancel any pending reminders on sign-out.
+    ReminderService.instance.cancelReminders().ignore();
     notifyListeners();
   }
 
@@ -596,6 +599,12 @@ class AppState extends ChangeNotifier {
     _skipIfLogged = (s['skipIfLogged'] as bool?) ?? _skipIfLogged;
     _budgetAlerts = (s['budgetAlerts'] as bool?) ?? _budgetAlerts;
     notifyListeners();
+    // Restore reminder schedule on login / new device.
+    if (_expenseReminders) {
+      _scheduleReminders();
+    } else {
+      ReminderService.instance.cancelReminders().ignore();
+    }
   }
 
   /// Load notification settings from Firestore on login.
@@ -630,12 +639,18 @@ class AppState extends ChangeNotifier {
     _expenseReminders = v;
     notifyListeners();
     _saveNotificationSettings();
+    if (v) {
+      _scheduleReminders();
+    } else {
+      ReminderService.instance.cancelReminders().ignore();
+    }
   }
 
   void setRemindEvery(String v) {
     _remindEvery = v;
     notifyListeners();
     _saveNotificationSettings();
+    if (_expenseReminders) _scheduleReminders();
   }
 
   void setQuietFrom(int hour, int min) {
@@ -643,6 +658,7 @@ class AppState extends ChangeNotifier {
     _quietFromMin = min;
     notifyListeners();
     _saveNotificationSettings();
+    if (_expenseReminders) _scheduleReminders();
   }
 
   void setQuietTo(int hour, int min) {
@@ -650,18 +666,48 @@ class AppState extends ChangeNotifier {
     _quietToMin = min;
     notifyListeners();
     _saveNotificationSettings();
+    if (_expenseReminders) _scheduleReminders();
   }
 
   void setSkipIfLogged(bool v) {
     _skipIfLogged = v;
     notifyListeners();
     _saveNotificationSettings();
+    // If skip-if-logged is now ON, the reminder will be deferred next time
+    // a transaction is saved (handled in rescheduleAfterTransaction).
   }
 
   void setBudgetAlerts(bool v) {
     _budgetAlerts = v;
     notifyListeners();
     _saveNotificationSettings();
+  }
+
+  // ── Reminder scheduling helpers ───────────────────────────────────────────
+
+  /// Schedules the next batch of reminders using current settings.
+  void _scheduleReminders({DateTime? startFrom}) {
+    ReminderService.instance.scheduleReminders(
+      intervalKey: _remindEvery,
+      quietFromHour: _quietFromHour,
+      quietFromMin: _quietFromMin,
+      quietToHour: _quietToHour,
+      quietToMin: _quietToMin,
+      startFrom: startFrom,
+    ).ignore();
+  }
+
+  /// Call this after successfully saving a transaction.
+  ///
+  /// If [skipIfLogged] is enabled, the next reminder is pushed out by the
+  /// full interval from *now*; otherwise the existing schedule is kept.
+  void rescheduleAfterTransaction() {
+    if (!_expenseReminders) return;
+    if (_skipIfLogged) {
+      _scheduleReminders(); // restarts the countdown from now
+    }
+    // If skip-if-logged is OFF, do nothing — the existing queued
+    // notifications continue on their original schedule.
   }
 
   // ── Managed categories (local-only helpers — actual writes go via repo) ────

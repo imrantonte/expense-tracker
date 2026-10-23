@@ -15,6 +15,7 @@ import 'repositories/transaction_repository.dart';
 import 'repositories/user_repository.dart';
 import 'screens/splash/splash_screen.dart';
 import 'services/auth_service.dart';
+import 'services/reminder_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +33,9 @@ void main() async {
 
   // Load persisted theme BEFORE runApp so there is never a theme flash.
   final themeController = await ThemeController.load();
+
+  // Initialise local notifications plugin.
+  await ReminderService.instance.init();
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

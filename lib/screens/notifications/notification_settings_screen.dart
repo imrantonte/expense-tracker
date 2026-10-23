@@ -4,15 +4,23 @@ import 'package:provider/provider.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
+import '../../services/reminder_service.dart';
 import '../../widgets/app_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NotificationSettingsScreen
 // ─────────────────────────────────────────────────────────────────────────────
 
-class NotificationSettingsScreen extends StatelessWidget {
+class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
 
+  @override
+  State<NotificationSettingsScreen> createState() =>
+      _NotificationSettingsScreenState();
+}
+
+class _NotificationSettingsScreenState
+    extends State<NotificationSettingsScreen> {
   static const _remindOptions = [
     ('2h', '2 hours'),
     ('3h', '3 hours'),
@@ -20,6 +28,29 @@ class NotificationSettingsScreen extends StatelessWidget {
     ('1d', 'Once a day'),
     ('custom', 'Custom'),
   ];
+
+  // ── Permission-aware toggle ─────────────────────────────────────────────────
+
+  Future<void> _toggleExpenseReminders(
+      AppState state, bool newValue) async {
+    if (newValue) {
+      // On Android 13+ we must request POST_NOTIFICATIONS before scheduling.
+      final granted =
+          await ReminderService.instance.requestPermission();
+      if (!mounted) return;
+      if (!granted) {
+        // Show a brief explanation and leave the toggle OFF.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Notification permission denied. Enable it in Settings.'),
+          ),
+        );
+        return;
+      }
+    }
+    state.setExpenseReminders(newValue);
+  }
 
   // ── 12-hour time formatter ──────────────────────────────────────────────────
 
@@ -108,8 +139,11 @@ class NotificationSettingsScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    _switch(state.expenseReminders,
-                        state.setExpenseReminders, cs, ext),
+                    _switch(
+                        state.expenseReminders,
+                        (v) => _toggleExpenseReminders(state, v),
+                        cs,
+                        ext),
                   ],
                 ),
               ),

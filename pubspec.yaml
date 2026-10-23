@@ -29,6 +29,10 @@ dependencies:
   cloud_firestore: ^7.0.0
   shared_preferences: ^2.5.6
 
+  # Local push notifications for expense reminders
+  flutter_local_notifications: ^18.0.0
+  timezone: ^0.9.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
