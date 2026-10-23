@@ -59,6 +59,18 @@ class UserRepository {
     }
   }
 
+  /// Returns the raw `settings` map from `users/{uid}` or `null` if absent.
+  Future<Map<String, dynamic>?> fetchRawSettings(String uid) async {
+    try {
+      final doc = await _userDoc(uid).get();
+      if (!doc.exists) return null;
+      final data = doc.data();
+      return data?['settings'] as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── Update ─────────────────────────────────────────────────────────────────
 
   /// Updates the user's display name in Firestore.

@@ -9,6 +9,7 @@ import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
 import '../repositories/notification_repository.dart';
 import '../repositories/transaction_repository.dart';
+import '../repositories/user_repository.dart';
 import 'mock_data.dart' as mock;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,6 +115,10 @@ class AppState extends ChangeNotifier {
   bool _skipIfLogged = true;
   bool _budgetAlerts = true;
 
+  // ── Firestore save reference ───────────────────────────────────────────────
+  UserRepository? _userRepo;
+  String? _uid;
+
   // ═══════════════════════════════════════════════════════════════════════════
   // STREAM MANAGEMENT
   // ═══════════════════════════════════════════════════════════════════════════
@@ -124,12 +129,17 @@ class AppState extends ChangeNotifier {
     required BudgetRepository budgetRepo,
     required NotificationRepository notifRepo,
     required CategoryRepository catRepo,
+    required UserRepository userRepo,
     required String uid,
   }) {
+    _userRepo = userRepo;
+    _uid = uid;
     _subscribeToTransactions(txRepo, uid);
     subscribeToBudget(budgetRepo, uid);
     _subscribeToNotifications(notifRepo, uid);
     _subscribeToCategories(catRepo, uid);
+    // Load persisted notification settings from Firestore (fire-and-forget).
+    _loadNotificationSettingsFromFirestore(userRepo, uid);
   }
 
   /// Cancels all streams and resets transient state.  Called on sign-out.
@@ -139,6 +149,8 @@ class AppState extends ChangeNotifier {
     _notifSub?.cancel();
     _catSub?.cancel();
     _txSub = _budgetSub = _notifSub = _catSub = null;
+    _userRepo = null;
+    _uid = null;
     _transactions = [];
     _notifications = [];
     _budget = null;
@@ -570,12 +582,87 @@ class AppState extends ChangeNotifier {
 
   // ── Notification settings ──────────────────────────────────────────────────
 
-  void setExpenseReminders(bool v) { _expenseReminders = v; notifyListeners(); }
-  void setRemindEvery(String v) { _remindEvery = v; notifyListeners(); }
-  void setQuietFrom(int hour, int min) { _quietFromHour = hour; _quietFromMin = min; notifyListeners(); }
-  void setQuietTo(int hour, int min) { _quietToHour = hour; _quietToMin = min; notifyListeners(); }
-  void setSkipIfLogged(bool v) { _skipIfLogged = v; notifyListeners(); }
-  void setBudgetAlerts(bool v) { _budgetAlerts = v; notifyListeners(); }
+  /// Hydrate notification settings from a Firestore settings map.
+  ///
+  /// Keys: expenseReminders, remindEvery, quietFromHour, quietFromMin,
+  ///       quietToHour, quietToMin, skipIfLogged, budgetAlerts.
+  void loadNotificationSettings(Map<String, dynamic> s) {
+    _expenseReminders = (s['expenseReminders'] as bool?) ?? _expenseReminders;
+    _remindEvery = (s['remindEvery'] as String?) ?? _remindEvery;
+    _quietFromHour = (s['quietFromHour'] as int?) ?? _quietFromHour;
+    _quietFromMin = (s['quietFromMin'] as int?) ?? _quietFromMin;
+    _quietToHour = (s['quietToHour'] as int?) ?? _quietToHour;
+    _quietToMin = (s['quietToMin'] as int?) ?? _quietToMin;
+    _skipIfLogged = (s['skipIfLogged'] as bool?) ?? _skipIfLogged;
+    _budgetAlerts = (s['budgetAlerts'] as bool?) ?? _budgetAlerts;
+    notifyListeners();
+  }
+
+  /// Load notification settings from Firestore on login.
+  Future<void> _loadNotificationSettingsFromFirestore(
+      UserRepository repo, String uid) async {
+    try {
+      final doc = await repo.fetchRawSettings(uid);
+      if (doc != null) loadNotificationSettings(doc);
+    } catch (_) {
+      // Non-fatal: keep defaults.
+    }
+  }
+
+  /// Persist current notification settings to Firestore.
+  void _saveNotificationSettings() {
+    if (_userRepo == null || _uid == null) return;
+    _userRepo!.updateSettings(_uid!, {
+      'settings': {
+        'expenseReminders': _expenseReminders,
+        'remindEvery': _remindEvery,
+        'quietFromHour': _quietFromHour,
+        'quietFromMin': _quietFromMin,
+        'quietToHour': _quietToHour,
+        'quietToMin': _quietToMin,
+        'skipIfLogged': _skipIfLogged,
+        'budgetAlerts': _budgetAlerts,
+      },
+    }).catchError((_) {}); // fire-and-forget
+  }
+
+  void setExpenseReminders(bool v) {
+    _expenseReminders = v;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
+
+  void setRemindEvery(String v) {
+    _remindEvery = v;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
+
+  void setQuietFrom(int hour, int min) {
+    _quietFromHour = hour;
+    _quietFromMin = min;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
+
+  void setQuietTo(int hour, int min) {
+    _quietToHour = hour;
+    _quietToMin = min;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
+
+  void setSkipIfLogged(bool v) {
+    _skipIfLogged = v;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
+
+  void setBudgetAlerts(bool v) {
+    _budgetAlerts = v;
+    notifyListeners();
+    _saveNotificationSettings();
+  }
 
   // ── Managed categories (local-only helpers — actual writes go via repo) ────
 

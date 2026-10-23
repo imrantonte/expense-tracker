@@ -30,22 +30,19 @@ void main() async {
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
+  // Load persisted theme BEFORE runApp so there is never a theme flash.
+  final themeController = await ThemeController.load();
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ),
-  );
-
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ThemeController()),
+        // Provide the pre-loaded ThemeController instance.
+        ChangeNotifierProvider<ThemeController>.value(value: themeController),
         ChangeNotifierProvider(create: (_) => AppState()),
         Provider<AuthService>(create: (_) => AuthService()),
         Provider<UserRepository>(create: (_) => UserRepository()),
@@ -67,6 +64,18 @@ class WhereDidItGoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeCtrl = context.watch<ThemeController>();
+
+    // Keep the status-bar icons in sync with the resolved theme.
+    final brightness = themeCtrl.isSystem
+        ? WidgetsBinding.instance.platformDispatcher.platformBrightness
+        : (themeCtrl.isDark ? Brightness.dark : Brightness.light);
+    final isDark = brightness == Brightness.dark;
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+    ));
+
     return MaterialApp(
       title: 'Where Did It Go?',
       debugShowCheckedModeBanner: false,

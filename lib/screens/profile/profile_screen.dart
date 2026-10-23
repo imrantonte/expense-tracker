@@ -6,6 +6,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../core/theme_controller.dart';
 import '../../data/app_state.dart';
+import '../../repositories/user_repository.dart';
 import '../../services/auth_service.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/budget/set_budget_screen.dart';
@@ -244,12 +245,10 @@ class ProfileScreen extends StatelessWidget {
                           tt: tt,
                         ),
                         _RowDivider(ext: ext),
-                        _SettingsSwitchRow(
+                        _ThemeModeRow(
                           icon: Icons.dark_mode_outlined,
-                          label: 'Dark mode',
-                          value: themeCtrl.isDark,
-                          onChanged: (v) => themeCtrl.setMode(
-                              v ? ThemeMode.dark : ThemeMode.light),
+                          label: 'Appearance',
+                          themeCtrl: themeCtrl,
                           ext: ext,
                           cs: cs,
                           tt: tt,
@@ -460,26 +459,30 @@ class _SettingsRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings row with a Switch instead of a chevron (Dark mode)
+// 3-way Appearance row  (Light / System / Dark)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _SettingsSwitchRow extends StatelessWidget {
-  const _SettingsSwitchRow({
+class _ThemeModeRow extends StatelessWidget {
+  const _ThemeModeRow({
     required this.icon,
     required this.label,
-    required this.value,
-    required this.onChanged,
+    required this.themeCtrl,
     required this.ext,
     required this.cs,
     required this.tt,
   });
   final IconData icon;
   final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  final ThemeController themeCtrl;
   final AppThemeExt ext;
   final ColorScheme cs;
   final TextTheme tt;
+
+  static const _modes = [
+    (ThemeMode.light, Icons.light_mode_rounded, 'Light'),
+    (ThemeMode.system, Icons.brightness_auto_rounded, 'System'),
+    (ThemeMode.dark, Icons.dark_mode_rounded, 'Dark'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -498,19 +501,72 @@ class _SettingsSwitchRow extends StatelessWidget {
             child: Icon(icon, color: cs.primary, size: 20),
           ),
           const SizedBox(width: kSp12),
-          Expanded(
-            child: Text(
-              label,
-              style: tt.bodyMedium?.copyWith(color: ext.textPrimary),
+          Text(label,
+              style: tt.bodyMedium?.copyWith(color: ext.textPrimary)),
+          const Spacer(),
+          // Segmented picker
+          Container(
+            decoration: BoxDecoration(
+              color: ext.cardBackground,
+              borderRadius: BorderRadius.circular(kRadiusButton),
+              border: Border.all(color: ext.cardBorder),
             ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: Colors.white,
-            activeTrackColor: cs.primary,
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: ext.divider,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: _modes.map((m) {
+                final (mode, mIcon, mLabel) = m;
+                final sel = themeCtrl.themeMode == mode;
+                return GestureDetector(
+                  onTap: () async {
+                    await themeCtrl.setMode(mode);
+                    // Also save to Firestore (best-effort).
+                    if (context.mounted) {
+                      final uid = context
+                          .read<AuthService>()
+                          .currentUser
+                          ?.uid;
+                      if (uid != null) {
+                        context.read<UserRepository>().updateSettings(
+                          uid,
+                          {'settings': {'themeMode': mode.name}},
+                        ).ignore();
+                      }
+                    }
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: kSp10, vertical: kSp6),
+                    decoration: BoxDecoration(
+                      color: sel ? cs.primary : Colors.transparent,
+                      borderRadius:
+                          BorderRadius.circular(kRadiusButton - 2),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(mIcon,
+                            size: 14,
+                            color: sel
+                                ? Colors.white
+                                : ext.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          mLabel,
+                          style: tt.bodySmall?.copyWith(
+                            color: sel ? Colors.white : ext.textSecondary,
+                            fontWeight: sel
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
         ],
       ),

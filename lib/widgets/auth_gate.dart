@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/theme_controller.dart';
 import '../data/app_state.dart';
 import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
@@ -111,13 +112,18 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
       budgetRepo: budgetRepo,
       notifRepo: notifRepo,
       catRepo: catRepo,
+      userRepo: userRepo,
       uid: uid,
     );
 
     // 2. Seed categories on first login (best-effort, fire-and-forget).
     catRepo.seedIfEmpty(uid).ignore();
 
-    // 3. Subscribe to profile stream.
+    // 3. Restore theme mode saved to Firestore (SharedPrefs is already
+    //    applied before runApp; this keeps them in sync on new devices).
+    _restoreThemeFromFirestore(userRepo, uid);
+
+    // 4. Subscribe to profile stream.
     _profileSub = userRepo.profileStream(uid).listen(
       (profile) {
         if (!mounted) return;
@@ -140,6 +146,23 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
     // Fallback: show shell after 3 s even if profile stream is slow.
     await Future.delayed(const Duration(seconds: 3));
     if (!_loaded && mounted) setState(() => _loaded = true);
+  }
+
+  void _restoreThemeFromFirestore(UserRepository repo, String uid) async {
+    try {
+      final settings = await repo.fetchRawSettings(uid);
+      final modeStr = settings?['themeMode'] as String?;
+      if (modeStr != null && mounted) {
+        final mode = ThemeMode.values.firstWhere(
+          (m) => m.name == modeStr,
+          orElse: () => ThemeMode.system,
+        );
+        // setMode also persists to SharedPreferences.
+        await context.read<ThemeController>().setMode(mode);
+      }
+    } catch (_) {
+      // Non-fatal.
+    }
   }
 
   @override
