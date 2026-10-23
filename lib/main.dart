@@ -23,7 +23,8 @@ void main() async {
   final firebaseApp = await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  debugPrint('[Firebase] Initialized: ${firebaseApp.name}');
+  // Suppress the unused-variable lint that would appear if we removed firebaseApp.
+  assert(firebaseApp.name.isNotEmpty);
 
   // Enable offline persistence with unlimited cache.
   FirebaseFirestore.instance.settings = const Settings(

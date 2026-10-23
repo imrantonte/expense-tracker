@@ -5,6 +5,9 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../widgets/wallet_logo_badge.dart';
 
+// Re-export so existing call-sites (login, register) need no change.
+export '../../core/validators.dart' show isValidEmail;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth header row (logo badge + app name)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -231,7 +234,3 @@ void showAuthSnackBar(BuildContext context, String message) {
       ),
     );
 }
-
-/// Returns `true` when [email] is a plausibly valid email address.
-bool isValidEmail(String email) =>
-    RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email.trim());

@@ -22,7 +22,7 @@ class ReminderService {
 
   // ── IDs ──────────────────────────────────────────────────────────────────
 
-  /// Notification channel / notification IDs start here.
+  /// Notification IDs start here.
   static const int _baseId = 100;
 
   /// How many upcoming reminders to pre-schedule so they survive process death.
@@ -30,8 +30,7 @@ class ReminderService {
 
   static const String _channelId = 'expense_reminders';
   static const String _channelName = 'Expense Reminders';
-  static const String _channelDesc =
-      'Nudges you to log what you spent.';
+  static const String _channelDesc = 'Nudges you to log what you spent.';
 
   // ── Plugin ───────────────────────────────────────────────────────────────
 
@@ -52,7 +51,6 @@ class ReminderService {
 
     await _plugin.initialize(initSettings);
     _initialised = true;
-    debugPrint('[ReminderService] Initialised.');
   }
 
   /// Requests the POST_NOTIFICATIONS runtime permission (Android 13+).
@@ -60,14 +58,16 @@ class ReminderService {
   /// Returns `true` if the permission was granted or is not required.
   Future<bool> requestPermission() async {
     try {
-      final impl =
-          _plugin.resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+      final impl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
       if (impl == null) return true; // Not Android
       final granted = await impl.requestNotificationsPermission();
       return granted ?? false;
     } catch (e) {
-      debugPrint('[ReminderService] requestPermission error: $e');
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[ReminderService] requestPermission error: $e');
+      }
       return false;
     }
   }
@@ -75,9 +75,8 @@ class ReminderService {
   /// Returns `true` if the POST_NOTIFICATIONS permission is currently granted.
   Future<bool> hasPermission() async {
     try {
-      final impl =
-          _plugin.resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
+      final impl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
       if (impl == null) return true;
       final granted = await impl.areNotificationsEnabled();
       return granted ?? false;
@@ -94,7 +93,7 @@ class ReminderService {
   /// - [quietFromHour] / [quietFromMin] : start of quiet window (24-h)
   /// - [quietToHour]   / [quietToMin]  : end of quiet window (24-h)
   /// - [startFrom]     : schedule first reminder **at or after** this moment
-  ///                     (default = now). Use to postpone after a tx is saved.
+  ///                     (default = now).
   Future<void> scheduleReminders({
     required String intervalKey,
     required int quietFromHour,
@@ -110,7 +109,6 @@ class ReminderService {
     final intervalMinutes = _intervalMinutes(intervalKey);
     final now = startFrom ?? DateTime.now();
 
-    // Build the message body that matches the preview card.
     final intervalLabel = switch (intervalKey) {
       '2h' => 'last 2 hours',
       '3h' => 'last 3 hours',
@@ -124,7 +122,6 @@ class ReminderService {
     var candidate = now.add(Duration(minutes: intervalMinutes));
 
     for (int i = 0; i < _lookaheadCount; i++) {
-      // Skip any time that falls inside the quiet window.
       candidate = _skipQuietHours(
         candidate,
         quietFromHour: quietFromHour,
@@ -148,9 +145,11 @@ class ReminderService {
               UILocalNotificationDateInterpretation.absoluteTime,
           payload: 'reminder',
         );
-        debugPrint('[ReminderService] Scheduled #$i at $tzTime');
       } catch (e) {
-        debugPrint('[ReminderService] Schedule error: $e');
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[ReminderService] Schedule error: $e');
+        }
       }
 
       candidate = candidate.add(Duration(minutes: intervalMinutes));
@@ -164,9 +163,11 @@ class ReminderService {
       for (int i = 0; i < _lookaheadCount; i++) {
         await _plugin.cancel(_baseId + i);
       }
-      debugPrint('[ReminderService] All reminders cancelled.');
     } catch (e) {
-      debugPrint('[ReminderService] Cancel error: $e');
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[ReminderService] Cancel error: $e');
+      }
     }
   }
 
@@ -179,8 +180,6 @@ class ReminderService {
       channelDescription: _channelDesc,
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
-      // Use the app's launcher icon as the small icon; replace with a
-      // monochrome 24dp white-on-transparent icon for production.
       icon: '@mipmap/ic_launcher',
       enableVibration: true,
       playSound: true,
@@ -197,11 +196,6 @@ class ReminderService {
       };
 
   /// Advance [time] forward until it is outside the quiet-hours window.
-  ///
-  /// Quiet hours are represented as a single window that may span midnight
-  /// (e.g. 22:00 → 08:00). When [time] falls inside that window, we jump
-  /// directly to the window's end time, then re-apply the interval so the
-  /// cadence stays consistent.
   static DateTime _skipQuietHours(
     DateTime time, {
     required int quietFromHour,
@@ -210,7 +204,6 @@ class ReminderService {
     required int quietToMin,
     required int intervalMinutes,
   }) {
-    // Quick exit: no quiet hours configured (both times are the same).
     if (quietFromHour == quietToHour && quietFromMin == quietToMin) {
       return time;
     }
@@ -223,20 +216,29 @@ class ReminderService {
       toHour: quietToHour,
       toMin: quietToMin,
     )) {
-      // Jump to the end of the quiet window today (or tomorrow if past midnight).
       final todayEnd = DateTime(
           time.year, time.month, time.day, quietToHour, quietToMin);
       final tomorrowEnd = todayEnd.add(const Duration(days: 1));
-
       time = time.isBefore(todayEnd) ? todayEnd : tomorrowEnd;
-
-      // Safety valve: should never loop more than twice.
       if (++iterations > 4) break;
     }
     return time;
   }
 
   /// Returns `true` when [time] falls inside the quiet-hours window.
+  static bool isInQuietHours(
+    DateTime time, {
+    required int fromHour,
+    required int fromMin,
+    required int toHour,
+    required int toMin,
+  }) =>
+      _isInQuietHours(time,
+          fromHour: fromHour,
+          fromMin: fromMin,
+          toHour: toHour,
+          toMin: toMin);
+
   static bool _isInQuietHours(
     DateTime time, {
     required int fromHour,
@@ -249,11 +251,12 @@ class ReminderService {
     final toMinutes = toHour * 60 + toMin;
 
     if (fromMinutes < toMinutes) {
-      // Simple window: e.g. 08:00 → 10:00
       return timeMinutes >= fromMinutes && timeMinutes < toMinutes;
     } else {
-      // Wraps midnight: e.g. 22:00 → 08:00
       return timeMinutes >= fromMinutes || timeMinutes < toMinutes;
     }
   }
+
+  /// Public wrapper around [_intervalMinutes] used by tests.
+  static int intervalMinutesForKey(String key) => _intervalMinutes(key);
 }
