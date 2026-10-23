@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,10 +6,19 @@ import 'package:provider/provider.dart';
 import 'core/theme.dart';
 import 'core/theme_controller.dart';
 import 'data/app_state.dart';
+import 'firebase_options.dart';
 import 'screens/splash/splash_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase.
+  final firebaseApp = await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  // TODO(debug): remove before production.
+  // ignore: avoid_print
+  debugPrint('[Firebase] Initialized app: ${firebaseApp.name}');
 
   // Portrait-only lock.
   SystemChrome.setPreferredOrientations([
