@@ -143,11 +143,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   controller: _pageCtrl,
                   itemCount: pages.length,
                   onPageChanged: (i) => setState(() => _currentPage = i),
-                  itemBuilder: (_, i) => _OnboardingPage(
-                    data: pages[i],
-                    illustrationHeight:
-                        MediaQuery.sizeOf(context).height * 0.285,
-                  ),
+                  itemBuilder: (_, i) => _OnboardingPage(data: pages[i]),
                 ),
               ),
 
@@ -182,13 +178,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _OnboardingPage extends StatelessWidget {
-  const _OnboardingPage({
-    required this.data,
-    required this.illustrationHeight,
-  });
+  const _OnboardingPage({required this.data});
 
   final _PageData data;
-  final double illustrationHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -199,17 +191,12 @@ class _OnboardingPage extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: kSp16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Illustration area (blob + card)
-          _IllustrationArea(
-            height: illustrationHeight,
-            ext: ext,
-            child: data.illustration,
+          // Takes all free height and scales down if the card is too tall
+          Expanded(
+            child: _IllustrationArea(ext: ext, child: data.illustration),
           ),
-          const SizedBox(height: kSp24),
-
-          // Kicker
+          const SizedBox(height: kSp16),
           Text(
             data.kicker,
             style: tt.labelSmall?.copyWith(
@@ -219,8 +206,6 @@ class _OnboardingPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: kSp10),
-
-          // Title
           Text(
             data.title,
             style: tt.headlineMedium?.copyWith(
@@ -232,8 +217,6 @@ class _OnboardingPage extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: kSp12),
-
-          // Body
           Text(
             data.body,
             style: tt.bodyMedium?.copyWith(
@@ -242,6 +225,7 @@ class _OnboardingPage extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: kSp8),
         ],
       ),
     );
@@ -253,58 +237,55 @@ class _OnboardingPage extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _IllustrationArea extends StatelessWidget {
-  const _IllustrationArea({
-    required this.height,
-    required this.ext,
-    required this.child,
-  });
+  const _IllustrationArea({required this.ext, required this.child});
 
-  final double height;
   final AppThemeExt ext;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    const blobSize = 186.0;
 
-    return SizedBox(
-      height: height,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.topCenter,
-        children: [
-          // Teal-tint halo blob (behind the card)
-          Container(
-            width: blobSize,
-            height: blobSize,
-            decoration: BoxDecoration(
-              color: ext.tint,
-              shape: BoxShape.circle,
-            ),
-          ),
-          // Small decorative dot — right of the card
-          Positioned(
-            right: 4,
-            top: blobSize * 0.38,
-            child: Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: primary,
-                shape: BoxShape.circle,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final blob =
+            (constraints.maxHeight * 0.85).clamp(120.0, 220.0).toDouble();
+        return SizedBox(
+          width: double.infinity,
+          height: constraints.maxHeight,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Teal-tint halo behind the card
+              Container(
+                width: blob,
+                height: blob,
+                decoration:
+                    BoxDecoration(color: ext.tint, shape: BoxShape.circle),
               ),
-            ),
+              // Small decorative dot
+              Positioned(
+                right: 4,
+                top: constraints.maxHeight * 0.3,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration:
+                      BoxDecoration(color: primary, shape: BoxShape.circle),
+                ),
+              ),
+              // Card: fixed 300 wide, scaled down if the space is smaller
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: kSp8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: SizedBox(width: 300, child: child),
+                ),
+              ),
+            ],
           ),
-          // Card — pinned to the bottom of the illustration area
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: child,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -494,11 +475,15 @@ class _TxRow extends StatelessWidget {
               children: [
                 Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: tt.bodyMedium
                       ?.copyWith(color: ext.textPrimary, fontWeight: FontWeight.w500),
                 ),
                 Text(
                   subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: tt.bodySmall?.copyWith(color: ext.textSecondary),
                 ),
               ],
@@ -570,22 +555,22 @@ class _Page2Illustration extends StatelessWidget {
                         value: 50,
                         color: seg1,
                         showTitle: false,
-                        radius: 36,
+                        radius: 28,
                       ),
                       PieChartSectionData(
                         value: 30,
                         color: seg2,
                         showTitle: false,
-                        radius: 36,
+                        radius: 28,
                       ),
                       PieChartSectionData(
                         value: 20,
                         color: seg3,
                         showTitle: false,
-                        radius: 36,
+                        radius: 28,
                       ),
                     ],
-                    centerSpaceRadius: 46,
+                    centerSpaceRadius: 40,
                     sectionsSpace: 2,
                     startDegreeOffset: -90,
                   ),

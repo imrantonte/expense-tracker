@@ -428,9 +428,14 @@ class _SearchBar extends StatelessWidget {
               style: tt.bodyMedium?.copyWith(color: ext.textPrimary),
               decoration: InputDecoration(
                 hintText: 'Search transactions',
-                hintStyle:
-                    tt.bodyMedium?.copyWith(color: ext.textSecondary),
+                hintStyle: tt.bodyMedium?.copyWith(color: ext.textSecondary),
+                filled: false,
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
               ),
