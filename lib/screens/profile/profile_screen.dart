@@ -6,6 +6,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../core/theme_controller.dart';
 import '../../data/app_state.dart';
+import '../../services/auth_service.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/budget/set_budget_screen.dart';
 import '../../screens/notifications/notification_settings_screen.dart';
@@ -285,12 +286,19 @@ class ProfileScreen extends StatelessWidget {
           ),
         ],
       ),
-    ).then((ok) {
+    ).then((ok) async {
       if (ok == true && context.mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (_) => false,
-        );
+        try {
+          await context.read<AuthService>().signOut();
+        } catch (_) {
+          // Sign-out errors are non-critical — proceed to login regardless.
+        }
+        if (context.mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (_) => false,
+          );
+        }
       }
     });
   }

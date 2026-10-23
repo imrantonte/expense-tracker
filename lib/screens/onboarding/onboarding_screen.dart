@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/app_typography.dart';
 import '../../core/constants.dart';
-import '../../screens/auth/register_screen.dart';
+import '../../screens/auth/login_screen.dart';
+import '../../services/onboarding_prefs.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/wallet_logo_badge.dart';
@@ -66,8 +67,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _goToApp() {
+    // Mark onboarding as seen so returning users skip it.
+    OnboardingPrefs.markSeen();
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const RegisterScreen()),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
     );
   }

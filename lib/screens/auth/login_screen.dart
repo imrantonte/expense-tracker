@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
-import '../../screens/home/home_screen.dart';
-import '../../screens/profile/profile_screen.dart';
-import '../../screens/reports/reports_screen.dart';
-import '../../screens/transactions/transactions_screen.dart';
-import '../../widgets/app_bottom_nav.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/app_text_field.dart';
+import '../../widgets/auth_gate.dart';
 import '../../widgets/primary_button.dart';
 import 'auth_shared.dart';
 import 'register_screen.dart';
@@ -16,7 +14,7 @@ import 'register_screen.dart';
 /// Login screen — email and password, with "Forgot password?" and footer link.
 ///
 /// Validation errors are reported via [SnackBar]; no inline error text.
-/// On success navigates to [AppShell] (the main app).
+/// On success the [AuthGate] StreamBuilder reacts and navigates automatically.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -38,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Validation & submission ─────────────────────────────────────────────────
 
-  void _submit() {
+  Future<void> _submit() async {
     final email = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
 
@@ -52,24 +50,24 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     setState(() => _loading = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      _goToApp();
-    });
+    try {
+      await context.read<AuthService>().signIn(email: email, password: pass);
+      // AuthGate's StreamBuilder reacts to the auth state change automatically.
+      if (mounted) _goToAuthGate();
+    } on AuthException catch (e) {
+      if (mounted) showAuthSnackBar(context, e.message);
+    } catch (_) {
+      if (mounted) {
+        showAuthSnackBar(context, 'Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
-  void _goToApp() {
+  void _goToAuthGate() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => AppShell(
-          tabs: const [
-            HomeScreen(),
-            TransactionsScreen(),
-            ReportsScreen(),
-            ProfileScreen(),
-          ],
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const AuthGate()),
       (_) => false,
     );
   }
@@ -80,12 +78,73 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _forgotPassword() {
-    showAuthSnackBar(context, 'Password reset is not available in this demo.');
+  Future<void> _forgotPassword() async {
+    final email = _emailCtrl.text.trim();
+
+    // If the field is empty, ask for the email via a dialog.
+    if (email.isEmpty || !isValidEmail(email)) {
+      await _showForgotPasswordDialog();
+      return;
+    }
+
+    await _sendReset(email);
+  }
+
+  Future<void> _showForgotPasswordDialog() async {
+    final ctrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset password'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            hintText: 'Enter your email address',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final email = ctrl.text.trim();
+              if (isValidEmail(email)) {
+                await _sendReset(email);
+              } else {
+                if (mounted) {
+                  showAuthSnackBar(
+                      context, 'Please enter a valid email address.');
+                }
+              }
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+  }
+
+  Future<void> _sendReset(String email) async {
+    try {
+      await context.read<AuthService>().sendPasswordReset(email);
+      if (mounted) showAuthSnackBar(context, 'Reset link sent to $email.');
+    } on AuthException catch (e) {
+      if (mounted) showAuthSnackBar(context, e.message);
+    } catch (_) {
+      if (mounted) {
+        showAuthSnackBar(context, 'Could not send reset email. Try again.');
+      }
+    }
   }
 
   void _googleSignIn() {
-    showAuthSnackBar(context, 'Google Sign-In is not available in this demo.');
+    showAuthSnackBar(context, 'Google sign-in is coming soon.');
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -159,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: GestureDetector(
-                    onTap: _forgotPassword,
+                    onTap: _loading ? null : _forgotPassword,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: kSp8),
                       child: Text(
@@ -187,7 +246,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: kSp24),
 
                 // ── Google button ─────────────────────────────────────────
-                GoogleButton(onPressed: _googleSignIn),
+                GoogleButton(onPressed: _loading ? () {} : _googleSignIn),
                 const SizedBox(height: kSp32),
 
                 // ── Footer ────────────────────────────────────────────────
@@ -195,7 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: AuthFooterLink(
                     prefix: "Don't have an account?",
                     linkLabel: 'Sign up',
-                    onTap: _goToRegister,
+                    onTap: _loading ? () {} : _goToRegister,
                   ),
                 ),
                 const SizedBox(height: kSp16),

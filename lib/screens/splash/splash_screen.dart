@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/app_typography.dart';
 import '../../core/constants.dart';
+import '../../widgets/auth_gate.dart';
 import '../../widgets/wallet_logo_badge.dart';
-import '../onboarding/onboarding_screen.dart';
 
 /// Full-screen splash shown for ~2 s before fading to [OnboardingScreen].
 ///
@@ -56,7 +56,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
-        pageBuilder: (context, _, a) => const OnboardingScreen(),
+        pageBuilder: (context, _, a) => const AuthGate(),
         transitionDuration: Duration.zero,
       ),
     );

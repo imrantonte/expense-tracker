@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
-import '../../screens/home/home_screen.dart';
-import '../../screens/profile/profile_screen.dart';
-import '../../screens/reports/reports_screen.dart';
-import '../../screens/transactions/transactions_screen.dart';
-import '../../widgets/app_bottom_nav.dart';
+import '../../services/auth_service.dart';
 import '../../widgets/app_text_field.dart';
+import '../../widgets/auth_gate.dart';
 import '../../widgets/primary_button.dart';
 import 'auth_shared.dart';
 import 'login_screen.dart';
@@ -16,7 +14,7 @@ import 'login_screen.dart';
 /// Registration screen — collects name, email, password, and confirm password.
 ///
 /// Validation errors are reported via a [SnackBar]; no inline error text.
-/// On success navigates to [AppShell] (the main app).
+/// On success [AuthGate]'s StreamBuilder reacts and navigates automatically.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -42,7 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   // ── Validation & submission ─────────────────────────────────────────────────
 
-  void _submit() {
+  Future<void> _submit() async {
     final name = _nameCtrl.text.trim();
     final email = _emailCtrl.text.trim();
     final pass = _passCtrl.text;
@@ -65,26 +63,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Simulate brief loading then go to app.
     setState(() => _loading = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      _goToApp();
-    });
+    try {
+      await context.read<AuthService>().register(
+            name: name,
+            email: email,
+            password: pass,
+          );
+      // AuthGate's StreamBuilder reacts to the auth state change automatically.
+      if (mounted) _goToAuthGate();
+    } on AuthException catch (e) {
+      if (mounted) showAuthSnackBar(context, e.message);
+    } catch (_) {
+      if (mounted) {
+        showAuthSnackBar(context, 'Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
-  void _goToApp() {
+  void _goToAuthGate() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => AppShell(
-          tabs: const [
-            HomeScreen(),
-            TransactionsScreen(),
-            ReportsScreen(),
-            ProfileScreen(),
-          ],
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const AuthGate()),
       (_) => false,
     );
   }
@@ -96,7 +97,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _googleSignIn() {
-    showAuthSnackBar(context, 'Google Sign-In is not available in this demo.');
+    showAuthSnackBar(context, 'Google sign-in is coming soon.');
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: kSp24),
 
                 // ── Google button ─────────────────────────────────────────
-                GoogleButton(onPressed: _googleSignIn),
+                GoogleButton(onPressed: _loading ? () {} : _googleSignIn),
                 const SizedBox(height: kSp32),
 
                 // ── Footer ────────────────────────────────────────────────
@@ -200,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: AuthFooterLink(
                     prefix: 'Already have an account?',
                     linkLabel: 'Log in',
-                    onTap: _goToLogin,
+                    onTap: _loading ? () {} : _goToLogin,
                   ),
                 ),
                 const SizedBox(height: kSp16),

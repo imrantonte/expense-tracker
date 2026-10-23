@@ -7,7 +7,9 @@ import 'core/theme.dart';
 import 'core/theme_controller.dart';
 import 'data/app_state.dart';
 import 'firebase_options.dart';
+import 'repositories/user_repository.dart';
 import 'screens/splash/splash_screen.dart';
+import 'services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +41,9 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeController()),
         ChangeNotifierProvider(create: (_) => AppState()),
+        // Services — created once, injected wherever needed.
+        Provider<AuthService>(create: (_) => AuthService()),
+        Provider<UserRepository>(create: (_) => UserRepository()),
       ],
       child: const WhereDidItGoApp(),
     ),
@@ -59,7 +64,7 @@ class WhereDidItGoApp extends StatelessWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeCtrl.themeMode,
-      // Flow: SplashScreen → OnboardingScreen → AppShell (home)
+      // Flow: SplashScreen → AuthGate → (AppShell | OnboardingScreen | LoginScreen)
       home: const SplashScreen(),
     );
   }
