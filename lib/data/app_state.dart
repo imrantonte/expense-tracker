@@ -71,6 +71,7 @@ class AppState extends ChangeNotifier {
         _managedCategories = [],
         _selectedMonth = DateTime.now().month,
         _selectedYear = DateTime.now().year,
+        _selectedDay = DateTime.now(),
         _filter = const TransactionFilter();
 
   // ── Core data ──────────────────────────────────────────────────────────────
@@ -98,6 +99,8 @@ class AppState extends ChangeNotifier {
 
   int _selectedMonth;
   int _selectedYear;
+  /// Selected day for the Daily tab (defaults to today, reset when month changes).
+  DateTime _selectedDay;
   TransactionFilter _filter;
 
   // ── Notification settings ──────────────────────────────────────────────────
@@ -297,6 +300,7 @@ class AppState extends ChangeNotifier {
 
   int get selectedMonth => _selectedMonth;
   int get selectedYear => _selectedYear;
+  DateTime get selectedDay => _selectedDay;
 
   // ── Transactions ───────────────────────────────────────────────────────────
 
@@ -366,6 +370,81 @@ class AppState extends ChangeNotifier {
       result[weekIdx] += t.amount;
     }
     return result;
+  }
+
+  // ── Daily-tab helpers ──────────────────────────────────────────────────────
+
+  /// Transactions that fall on [selectedDay].
+  List<TransactionItem> get dailyTransactions => _transactions
+      .where((t) =>
+          t.date.year == _selectedDay.year &&
+          t.date.month == _selectedDay.month &&
+          t.date.day == _selectedDay.day)
+      .toList();
+
+  double get dailyEarned =>
+      dailyTransactions.where((t) => t.isIncome).fold(0.0, (s, t) => s + t.amount);
+  double get dailySpent =>
+      dailyTransactions.where((t) => !t.isIncome).fold(0.0, (s, t) => s + t.amount);
+
+  /// Per-block (6-hour) totals for the selected day.
+  /// Blocks: 0 = midnight–5:59, 1 = 6am–11:59, 2 = noon–17:59, 3 = 6pm–23:59
+  List<double> dailyBlockTotals({required bool isIncome}) {
+    final result = [0.0, 0.0, 0.0, 0.0];
+    for (final t in dailyTransactions.where((t) => t.isIncome == isIncome)) {
+      final block = (t.date.hour ~/ 6).clamp(0, 3);
+      result[block] += t.amount;
+    }
+    return result;
+  }
+
+  Map<String, double> get dailyCategoryBreakdown {
+    final map = <String, double>{};
+    for (final t in dailyTransactions.where((t) => !t.isIncome)) {
+      map[t.categoryId] = (map[t.categoryId] ?? 0) + t.amount;
+    }
+    return map;
+  }
+
+  // ── Weekly-tab helpers ─────────────────────────────────────────────────────
+
+  /// Monday of the ISO week containing [_selectedDay].
+  DateTime get _weekMonday {
+    final d = _selectedDay;
+    return d.subtract(Duration(days: d.weekday - 1));
+  }
+
+  /// Transactions in the ISO week containing [_selectedDay].
+  List<TransactionItem> get weeklyTransactions {
+    final monday = _weekMonday;
+    final sunday = monday.add(const Duration(days: 6));
+    return _transactions.where((t) {
+      final d = t.date;
+      final day = DateTime(d.year, d.month, d.day);
+      return !day.isBefore(monday) && !day.isAfter(sunday);
+    }).toList();
+  }
+
+  double get weeklyEarned =>
+      weeklyTransactions.where((t) => t.isIncome).fold(0.0, (s, t) => s + t.amount);
+  double get weeklySpent =>
+      weeklyTransactions.where((t) => !t.isIncome).fold(0.0, (s, t) => s + t.amount);
+
+  /// Per-day-of-week totals (Mon=0 … Sun=6).
+  List<double> weekDayTotals({required bool isIncome}) {
+    final result = List<double>.filled(7, 0.0);
+    for (final t in weeklyTransactions.where((t) => t.isIncome == isIncome)) {
+      result[t.date.weekday - 1] += t.amount;
+    }
+    return result;
+  }
+
+  Map<String, double> get weeklyCategoryBreakdown {
+    final map = <String, double>{};
+    for (final t in weeklyTransactions.where((t) => !t.isIncome)) {
+      map[t.categoryId] = (map[t.categoryId] ?? 0) + t.amount;
+    }
+    return map;
   }
 
   // ── Notifications ──────────────────────────────────────────────────────────
@@ -446,7 +525,22 @@ class AppState extends ChangeNotifier {
     if (_selectedMonth == month && _selectedYear == year) return;
     _selectedMonth = month;
     _selectedYear = year;
+    // Reset selected day to the 1st of the new month (or today if same month).
+    final now = DateTime.now();
+    _selectedDay = (month == now.month && year == now.year)
+        ? now
+        : DateTime(year, month, 1);
     resubscribeBudgetForMonth(year, month);
+    notifyListeners();
+  }
+
+  void setSelectedDay(DateTime day) {
+    if (_selectedDay.year == day.year &&
+        _selectedDay.month == day.month &&
+        _selectedDay.day == day.day) {
+      return;
+    }
+    _selectedDay = day;
     notifyListeners();
   }
 

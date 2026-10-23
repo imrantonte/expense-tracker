@@ -6,8 +6,8 @@ import 'package:provider/provider.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
-import '../../widgets/app_card.dart';
 import '../../screens/budget/set_budget_screen.dart';
+import '../../widgets/app_card.dart';
 import '../../widgets/month_picker_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,58 +24,109 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   String _period = 'Monthly'; // Daily | Weekly | Monthly
 
-  // ── Per-period summary figures ─────────────────────────────────────────────
+  // ── Per-period summary (Earned / Spent / Left) ─────────────────────────────
 
-  ({double earned, double spent, double left}) _summaryFor(AppState state) =>
-      switch (_period) {
-        'Daily' => (earned: 3000.0, spent: 420.0, left: 2580.0),
-        'Weekly' => (earned: 5000.0, spent: 1800.0, left: 3200.0),
-        _ => (
-            earned: state.monthEarned,
-            spent: state.monthSpent,
-            left: state.monthLeft,
-          ),
-      };
+  ({double earned, double spent, double left}) _summaryFor(AppState state) {
+    switch (_period) {
+      case 'Daily':
+        return (
+          earned: state.dailyEarned,
+          spent: state.dailySpent,
+          left: state.dailyEarned - state.dailySpent,
+        );
+      case 'Weekly':
+        return (
+          earned: state.weeklyEarned,
+          spent: state.weeklySpent,
+          left: state.weeklyEarned - state.weeklySpent,
+        );
+      default: // Monthly
+        return (
+          earned: state.monthEarned,
+          spent: state.monthSpent,
+          left: state.monthLeft,
+        );
+    }
+  }
 
   // ── Per-period bar-chart series ────────────────────────────────────────────
 
-  ({List<double> income, List<double> expense, List<String> xLabels,
-      double maxY, double interval})
-      _barsFor(AppState state) {
-    if (_period == 'Daily') {
-      return (
-        income: [0, 3000, 0, 0],
-        expense: [180, 240, 0, 0],
-        xLabels: ['9am', '12pm', '3pm', '6pm'],
-        maxY: 5000.0,
-        interval: 2500.0,
-      );
+  ({
+    List<double> income,
+    List<double> expense,
+    List<String> xLabels,
+    double maxY,
+    double interval,
+  }) _barsFor(AppState state) {
+    List<double> income;
+    List<double> expense;
+    List<String> xLabels;
+
+    switch (_period) {
+      case 'Daily':
+        income = state.dailyBlockTotals(isIncome: true);
+        expense = state.dailyBlockTotals(isIncome: false);
+        xLabels = const ['12am', '6am', '12pm', '6pm'];
+      case 'Weekly':
+        income = state.weekDayTotals(isIncome: true);
+        expense = state.weekDayTotals(isIncome: false);
+        xLabels = const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      default: // Monthly
+        income = state.weeklyIncome;
+        expense = state.weeklyExpenses;
+        xLabels = const ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'];
     }
-    if (_period == 'Weekly') {
-      return (
-        income: [0, 3000, 0, 2000],
-        expense: [120, 660, 0, 1020],
-        xLabels: ['Mon', 'Tue', 'Wed', 'Thu'],
-        maxY: 5000.0,
-        interval: 2500.0,
-      );
-    }
-    // Monthly — use real computed weekly totals.
-    final income = state.weeklyIncome;
-    final expense = state.weeklyExpenses;
+
     final allValues = [...income, ...expense];
-    final maxVal = allValues.isEmpty
-        ? 1000.0
-        : allValues.reduce((a, b) => a > b ? a : b);
+    final maxVal =
+        allValues.isEmpty ? 0.0 : allValues.reduce((a, b) => a > b ? a : b);
     final maxY = maxVal <= 0 ? 1000.0 : (maxVal * 1.3).ceilToDouble();
-    final interval = (maxY / 3).ceilToDouble().clamp(100.0, double.infinity);
+    final interval =
+        (maxY / 3).ceilToDouble().clamp(100.0, double.infinity);
+
     return (
       income: income,
       expense: expense,
-      xLabels: const ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+      xLabels: xLabels,
       maxY: maxY,
       interval: interval,
     );
+  }
+
+  // ── Per-period category breakdown ──────────────────────────────────────────
+
+  Map<String, double> _breakdownFor(AppState state) {
+    switch (_period) {
+      case 'Daily':
+        return state.dailyCategoryBreakdown;
+      case 'Weekly':
+        return state.weeklyCategoryBreakdown;
+      default:
+        return state.categoryBreakdown;
+    }
+  }
+
+  Map<String, double> _percentFor(Map<String, double> breakdown) {
+    final total = breakdown.values.fold(0.0, (s, v) => s + v);
+    if (total == 0) return {};
+    return breakdown
+        .map((k, v) => MapEntry(k, (v / total * 100).roundToDouble()));
+  }
+
+  // ── Period sub-label (shown next to month picker) ──────────────────────────
+
+  String _periodSubLabel(AppState state) {
+    final d = state.selectedDay;
+    switch (_period) {
+      case 'Daily':
+        return DateFormat('d MMM').format(d);
+      case 'Weekly':
+        final monday = d.subtract(Duration(days: d.weekday - 1));
+        final sunday = monday.add(const Duration(days: 6));
+        return '${DateFormat('d MMM').format(monday)} – ${DateFormat('d MMM').format(sunday)}';
+      default:
+        return '';
+    }
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -94,19 +145,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final sym = state.currencySymbol;
             final summary = _summaryFor(state);
             final bars = _barsFor(state);
+            final breakdown = _breakdownFor(state);
+            final percent = _percentFor(breakdown);
 
-            // Donut — built dynamically from real categoryBreakdown (up to 5).
-            final breakdown = state.categoryBreakdown;
-            final percent = state.categoryPercent;
-
-            // Sort by amount descending, cap at 5 slices.
+            // Sort by amount desc, cap at 5 slices.
             final sortedIds = breakdown.keys.toList()
               ..sort((a, b) =>
                   (breakdown[b] ?? 0).compareTo(breakdown[a] ?? 0));
-            final donutIds =
-                sortedIds.take(5).toList(); // at most 5 slices
+            final donutIds = sortedIds.take(5).toList();
 
-            // Colour palette for slices (cycles if more than 5).
             final palette = [
               cs.primary,
               ext.income,
@@ -118,6 +165,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
             final monthLabel =
                 '${_monthAbbr(state.selectedMonth)} ${state.selectedYear}';
+            final subLabel = _periodSubLabel(state);
 
             return CustomScrollView(
               slivers: [
@@ -125,8 +173,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 SliverToBoxAdapter(
                   child: _Header(
                     monthLabel: monthLabel,
+                    subLabel: subLabel,
+                    period: _period,
                     onMonthTap: () => _openMonthPicker(ctx, state),
-                    ext: ext, cs: cs, tt: tt,
+                    onPrevDay: () => _shiftDay(state, -1),
+                    onNextDay: () => _shiftDay(state, 1),
+                    ext: ext,
+                    cs: cs,
+                    tt: tt,
                   ),
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: kSp16)),
@@ -139,7 +193,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     child: _PeriodToggle(
                       selected: _period,
                       onChanged: (p) => setState(() => _period = p),
-                      ext: ext, cs: cs, tt: tt,
+                      ext: ext,
+                      cs: cs,
+                      tt: tt,
                     ),
                   ),
                 ),
@@ -158,7 +214,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             amount: summary.earned,
                             color: ext.income,
                             icon: Icons.arrow_upward_rounded,
-                            sym: sym, nf: nf, ext: ext, tt: tt,
+                            sym: sym,
+                            nf: nf,
+                            ext: ext,
+                            tt: tt,
                           ),
                         ),
                         const SizedBox(width: kSp8),
@@ -168,7 +227,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             amount: summary.spent,
                             color: ext.expense,
                             icon: Icons.arrow_downward_rounded,
-                            sym: sym, nf: nf, ext: ext, tt: tt,
+                            sym: sym,
+                            nf: nf,
+                            ext: ext,
+                            tt: tt,
                           ),
                         ),
                         const SizedBox(width: kSp8),
@@ -178,7 +240,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             amount: summary.left,
                             color: cs.primary,
                             icon: null,
-                            sym: sym, nf: nf, ext: ext, tt: tt,
+                            sym: sym,
+                            nf: nf,
+                            ext: ext,
+                            tt: tt,
                           ),
                         ),
                       ],
@@ -211,16 +276,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               _Dot(color: ext.income),
                               const SizedBox(width: kSp4),
                               Text('Income',
-                                  style: tt.bodySmall?.copyWith(
-                                      color: ext.textPrimary)),
+                                  style: tt.bodySmall
+                                      ?.copyWith(color: ext.textPrimary)),
                               const SizedBox(width: kSp12),
                               _Dot(color: ext.expense),
                               const SizedBox(width: kSp4),
                               Text('Expenses',
-                                  style: tt.bodySmall?.copyWith(
-                                      color: ext.textPrimary)),
+                                  style: tt.bodySmall
+                                      ?.copyWith(color: ext.textPrimary)),
                               const SizedBox(width: kSp12),
-                              Text('in ৳',
+                              Text('in $sym',
                                   style: tt.bodySmall?.copyWith(
                                       color: ext.textSecondary)),
                             ],
@@ -264,85 +329,103 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ),
                           ),
                           const SizedBox(height: kSp12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              // Donut chart
-                              SizedBox(
-                                width: 140,
-                                height: 140,
-                                child: Stack(
-                                  alignment: Alignment.center,
+                          donutIds.isEmpty
+                              ? _EmptyDonut(
+                                  sym: sym,
+                                  ext: ext,
+                                  tt: tt,
+                                  cs: cs,
+                                )
+                              : Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.center,
                                   children: [
-                                    PieChart(
-                                      PieChartData(
-                                        sections: [
+                                    // Donut
+                                    SizedBox(
+                                      width: 140,
+                                      height: 140,
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          PieChart(
+                                            PieChartData(
+                                              sections: [
+                                                for (int i = 0;
+                                                    i < donutIds.length;
+                                                    i++)
+                                                  PieChartSectionData(
+                                                    value: percent[
+                                                            donutIds[i]] ??
+                                                        0,
+                                                    color: colorFor(i),
+                                                    title: '',
+                                                    radius: 36,
+                                                  ),
+                                              ],
+                                              centerSpaceRadius: 50,
+                                              sectionsSpace: 2,
+                                              startDegreeOffset: -90,
+                                            ),
+                                          ),
+                                          Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                '$sym${nf.format(summary.spent.toInt())}',
+                                                style: tt.titleSmall
+                                                    ?.copyWith(
+                                                  color: cs.primary,
+                                                  fontWeight:
+                                                      FontWeight.w800,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                              Text(
+                                                'spent',
+                                                style: tt.bodySmall
+                                                    ?.copyWith(
+                                                        color:
+                                                            ext.textSecondary),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: kSp16),
+                                    // Legend
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
                                           for (int i = 0;
                                               i < donutIds.length;
-                                              i++)
-                                            PieChartSectionData(
-                                              value: percent[donutIds[i]] ?? 0,
+                                              i++) ...[
+                                            if (i > 0)
+                                              const SizedBox(height: kSp10),
+                                            _DonutLegendRow(
+                                              name: state
+                                                      .findCategory(
+                                                          donutIds[i])
+                                                      ?.name ??
+                                                  donutIds[i],
                                               color: colorFor(i),
-                                              title: '',
-                                              radius: 36,
+                                              amount: breakdown[
+                                                      donutIds[i]] ??
+                                                  0,
+                                              pct: percent[donutIds[i]] ??
+                                                  0,
+                                              sym: sym,
+                                              nf: nf,
+                                              ext: ext,
+                                              tt: tt,
                                             ),
+                                          ],
                                         ],
-                                        centerSpaceRadius: 50,
-                                        sectionsSpace: 2,
-                                        startDegreeOffset: -90,
                                       ),
-                                    ),
-                                    Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          '$sym${nf.format(summary.spent.toInt())}',
-                                          style: tt.titleSmall?.copyWith(
-                                            color: cs.primary,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        Text(
-                                          'spent',
-                                          style: tt.bodySmall?.copyWith(
-                                              color: ext.textSecondary),
-                                        ),
-                                      ],
                                     ),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(width: kSp16),
-                              // Legend
-                              Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    for (int i = 0;
-                                        i < donutIds.length;
-                                        i++) ...[
-                                      if (i > 0)
-                                        const SizedBox(height: kSp10),
-                                      _DonutLegendRow(
-                                        name: state
-                                                .findCategory(donutIds[i])
-                                                ?.name ??
-                                            donutIds[i],
-                                        color: colorFor(i),
-                                        amount: breakdown[donutIds[i]] ?? 0,
-                                        pct: percent[donutIds[i]] ?? 0,
-                                        sym: sym,
-                                        nf: nf,
-                                        ext: ext,
-                                        tt: tt,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
@@ -381,13 +464,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 const SizedBox(height: kSp4),
                                 Text(
                                   '$sym${nf.format(state.budget!.limit.toInt())} monthly budget',
-                                  style: tt.bodySmall
-                                      ?.copyWith(color: ext.textSecondary),
+                                  style: tt.bodySmall?.copyWith(
+                                      color: ext.textSecondary),
                                 ),
                                 const SizedBox(height: kSp12),
                                 _BudgetBar(
-                                    progress:
-                                        state.budgetUsage.clamp(0.0, 1.0),
+                                    progress: state.budgetUsage
+                                        .clamp(0.0, 1.0),
                                     ext: ext),
                                 const SizedBox(height: kSp8),
                                 Row(
@@ -486,6 +569,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  /// Shift the selected day forward or backward for Daily / Weekly tabs.
+  void _shiftDay(AppState state, int deltaDays) {
+    final next = state.selectedDay.add(Duration(days: deltaDays));
+    state.setSelectedDay(next);
+    // Also keep the month picker in sync when the day crosses a month boundary.
+    if (next.month != state.selectedMonth ||
+        next.year != state.selectedYear) {
+      state.setSelectedMonth(next.month, next.year);
+    }
+  }
+
   // ── Bar chart builder ───────────────────────────────────────────────────────
 
   BarChartData _buildBarData({
@@ -508,15 +602,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               toY: income[i],
               color: ext.income,
               width: 11,
-              borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(4)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(4)),
             ),
             BarChartRodData(
               toY: expense[i],
               color: ext.expense,
               width: 11,
-              borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(4)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ],
         ),
@@ -533,10 +627,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       borderData: FlBorderData(show: false),
       titlesData: FlTitlesData(
-        rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false)),
+        rightTitles:
+            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles:
+            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -550,10 +644,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     : v >= 1000
                         ? '${(v / 1000).toInt()}k'
                         : v.toInt().toString(),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: ext.textSecondary,
-                ),
+                style: TextStyle(fontSize: 11, color: ext.textSecondary),
               ),
             ),
           ),
@@ -571,10 +662,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 axisSide: meta.axisSide,
                 child: Text(
                   xLabels[i],
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: ext.textSecondary,
-                  ),
+                  style: TextStyle(fontSize: 11, color: ext.textSecondary),
                 ),
               );
             },
@@ -602,13 +690,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
 class _Header extends StatelessWidget {
   const _Header({
     required this.monthLabel,
+    required this.subLabel,
+    required this.period,
     required this.onMonthTap,
+    required this.onPrevDay,
+    required this.onNextDay,
     required this.ext,
     required this.cs,
     required this.tt,
   });
   final String monthLabel;
+  final String subLabel;
+  final String period;
   final VoidCallback onMonthTap;
+  final VoidCallback onPrevDay;
+  final VoidCallback onNextDay;
   final AppThemeExt ext;
   final ColorScheme cs;
   final TextTheme tt;
@@ -639,11 +735,38 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: onMonthTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: kSp12, vertical: kSp6),
+          // For Daily/Weekly show chevron nav; for Monthly show month picker
+          if (period == 'Monthly')
+            GestureDetector(
+              onTap: onMonthTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: kSp12, vertical: kSp6),
+                decoration: BoxDecoration(
+                  color: ext.cardBackground,
+                  borderRadius: BorderRadius.circular(kRadiusButton),
+                  border: Border.all(color: ext.cardBorder),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      monthLabel,
+                      style: tt.labelMedium?.copyWith(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: kSp4),
+                    Icon(Icons.keyboard_arrow_down_rounded,
+                        color: cs.primary, size: 16),
+                  ],
+                ),
+              ),
+            )
+          else
+            // Day navigator (prev / label / next)
+            Container(
               decoration: BoxDecoration(
                 color: ext.cardBackground,
                 borderRadius: BorderRadius.circular(kRadiusButton),
@@ -652,20 +775,34 @@ class _Header extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  GestureDetector(
+                    onTap: onPrevDay,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: kSp8, vertical: kSp6),
+                      child: Icon(Icons.chevron_left_rounded,
+                          color: cs.primary, size: 18),
+                    ),
+                  ),
                   Text(
-                    monthLabel,
+                    subLabel,
                     style: tt.labelMedium?.copyWith(
                       color: cs.primary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: kSp4),
-                  Icon(Icons.keyboard_arrow_down_rounded,
-                      color: cs.primary, size: 16),
+                  GestureDetector(
+                    onTap: onNextDay,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: kSp8, vertical: kSp6),
+                      child: Icon(Icons.chevron_right_rounded,
+                          color: cs.primary, size: 18),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
         ],
       ),
     );
@@ -709,8 +846,7 @@ class _PeriodToggle extends StatelessWidget {
               onTap: () => onChanged(opt),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding:
-                    const EdgeInsets.symmetric(vertical: kSp10),
+                padding: const EdgeInsets.symmetric(vertical: kSp10),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: sel ? cs.primary : Colors.transparent,
@@ -735,7 +871,7 @@ class _PeriodToggle extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Summary mini-card  (Earned / Spent / Left)
+// Summary mini-card (Earned / Spent / Left)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummaryChip extends StatelessWidget {
@@ -769,7 +905,8 @@ class _SummaryChip extends StatelessWidget {
           Row(
             children: [
               Text(label,
-                  style: tt.bodySmall?.copyWith(color: ext.textSecondary)),
+                  style:
+                      tt.bodySmall?.copyWith(color: ext.textSecondary)),
               if (icon != null) ...[
                 const SizedBox(width: kSp4),
                 Icon(icon, size: 13, color: color),
@@ -791,6 +928,87 @@ class _SummaryChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty donut state
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EmptyDonut extends StatelessWidget {
+  const _EmptyDonut(
+      {required this.sym,
+      required this.ext,
+      required this.tt,
+      required this.cs});
+  final String sym;
+  final AppThemeExt ext;
+  final TextTheme tt;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 140,
+          height: 140,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              PieChart(
+                PieChartData(
+                  sections: [
+                    PieChartSectionData(
+                      value: 1,
+                      color: ext.divider,
+                      title: '',
+                      radius: 36,
+                    ),
+                  ],
+                  centerSpaceRadius: 50,
+                  sectionsSpace: 0,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${sym}0',
+                    style: tt.titleSmall?.copyWith(
+                      color: cs.primary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                  Text(
+                    'spent',
+                    style:
+                        tt.bodySmall?.copyWith(color: ext.textSecondary),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: kSp16),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.receipt_long_rounded,
+                  color: ext.textSecondary, size: 32),
+              const SizedBox(height: kSp8),
+              Text(
+                'No spending yet',
+                style: tt.bodySmall?.copyWith(color: ext.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -829,7 +1047,8 @@ class _DonutLegendRow extends StatelessWidget {
           child: Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            decoration:
+                BoxDecoration(color: color, shape: BoxShape.circle),
           ),
         ),
         const SizedBox(width: kSp6),
@@ -841,12 +1060,13 @@ class _DonutLegendRow extends StatelessWidget {
               Row(
                 children: [
                   Text(name,
-                      style: tt.bodySmall?.copyWith(color: ext.textPrimary)),
+                      style:
+                          tt.bodySmall?.copyWith(color: ext.textPrimary)),
                   const Spacer(),
                   Text(
                     '${pct.round()}%',
-                    style:
-                        tt.bodySmall?.copyWith(color: ext.textSecondary),
+                    style: tt.bodySmall
+                        ?.copyWith(color: ext.textSecondary),
                   ),
                 ],
               ),
