@@ -194,7 +194,7 @@ class ProfileScreen extends StatelessWidget {
                           icon: Icons.account_balance_wallet_outlined,
                           label: 'Monthly Budget',
                           value:
-                              '$sym${_nf.format(state.budget.limit.toInt())}',
+                              '$sym${_nf.format((state.budget?.limit ?? 0).toInt())}',
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(

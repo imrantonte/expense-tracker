@@ -7,8 +7,11 @@ import 'package:provider/provider.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
+import '../../models/app_notification.dart';
 import '../../models/category.dart';
 import '../../models/transaction_item.dart';
+import '../../repositories/budget_repository.dart';
+import '../../repositories/notification_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/primary_button.dart';
@@ -144,45 +147,84 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     if (!mounted) return;
 
-    // Check budget exceeded (expenses only)
-    if (_isExpense && !_isOverBudget(state)) {
-      _snack(isEditing ? 'Transaction updated.' : 'Expense saved.');
+    // For income or edits: just pop with a confirmation.
+    if (!_isExpense || isEditing) {
+      _snack(isEditing ? 'Transaction updated.' : 'Income saved.');
       Navigator.pop(context);
       return;
     }
 
-    if (_isExpense && _isOverBudget(state)) {
-      setState(() => _saving = false);
-      await _showBudgetExceededDialog(state);
+    // For new expenses: check budget thresholds.
+    await _checkBudgetAndNotify(uid, state);
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  /// Checks spending vs budget thresholds and creates Firestore notifications
+  /// if a threshold / limit is crossed for the first time this month.
+  Future<void> _checkBudgetAndNotify(
+      String uid, AppState state) async {
+    if (!state.hasBudget) return;
+    final budget = state.budget!;
+    if (!budget.notifyEnabled) return;
+
+    final now = DateTime.now();
+    final spent = state.budgetSpent;
+    final limit = budget.limit;
+    final sym = state.currencySymbol;
+    final nf = NumberFormat('#,##0');
+
+    final budgetRepo = context.read<BudgetRepository>();
+    final notifRepo = context.read<NotificationRepository>();
+
+    final isOver = spent > limit;
+    final isNearThreshold =
+        budget.alertThreshold > 0 && spent >= limit * budget.alertThreshold;
+
+    if (isOver) {
+      // Check if we already sent the over-limit notification this month.
+      final alreadySent =
+          await budgetRepo.wasOverLimitSent(uid, now.year, now.month);
+      if (!alreadySent) {
+        await budgetRepo.markOverLimitSent(uid, now.year, now.month);
+        final over = (spent - limit).clamp(0.0, double.infinity);
+        await notifRepo.addNotification(
+          uid: uid,
+          title: "You've gone over your budget",
+          body:
+              "You're $sym${nf.format(over.toInt())} over your $sym${nf.format(limit.toInt())} limit. Let's take a look together.",
+          type: NotificationType.budgetOver,
+        );
+        if (mounted) await _showBudgetExceededDialog(state);
+      } else {
+        _snack('Expense saved.');
+      }
+    } else if (isNearThreshold) {
+      // Check if we already sent the threshold warning this month.
+      final alreadySent =
+          await budgetRepo.wasAlertSent(uid, now.year, now.month);
+      if (!alreadySent) {
+        await budgetRepo.markAlertSent(uid, now.year, now.month);
+        await notifRepo.addNotification(
+          uid: uid,
+          title:
+              "You've used ${(budget.alertThreshold * 100).round()}% of your monthly budget",
+          body:
+              '$sym${nf.format(spent.toInt())} spent of $sym${nf.format(limit.toInt())}. A little heads-up for the month ahead.',
+          type: NotificationType.budgetWarning,
+        );
+      }
+      _snack('Expense saved.');
     } else {
-      _snack(isEditing ? 'Transaction updated.' : 'Income saved.');
-      Navigator.pop(context);
+      _snack('Expense saved.');
     }
   }
 
-  bool _isOverBudget(AppState state) {
-    // Compute live total from actual transactions
-    final spent = state.transactions
-        .where((t) => !t.isIncome)
-        .fold(0.0, (s, t) => s + t.amount);
-    return spent > state.budget.limit;
-  }
-
-  double _overAmount(AppState state) {
-    final spent = state.transactions
-        .where((t) => !t.isIncome)
-        .fold(0.0, (s, t) => s + t.amount);
-    return (spent - state.budget.limit).clamp(0, double.infinity);
-  }
-
-  double _totalSpent(AppState state) => state.transactions
-      .where((t) => !t.isIncome)
-      .fold(0.0, (s, t) => s + t.amount);
-
   Future<void> _showBudgetExceededDialog(AppState state) async {
     final sym = state.currencySymbol;
-    final over = _overAmount(state);
-    final total = _totalSpent(state);
+    final spent = state.budgetSpent;
+    final limit = state.budget?.limit ?? 0;
+    final over = (spent - limit).clamp(0.0, double.infinity);
     final month = DateFormat('MMMM').format(
       DateTime(state.selectedYear, state.selectedMonth),
     );
@@ -193,10 +235,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       builder: (ctx) => _BudgetExceededDialog(
         sym: sym,
         overAmount: over,
-        total: total,
+        total: spent,
         month: month,
         onOk: () {
           Navigator.of(ctx).pop();
+
           Navigator.of(context).pop();
         },
       ),

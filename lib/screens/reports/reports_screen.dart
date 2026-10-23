@@ -7,6 +7,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../widgets/app_card.dart';
+import '../../screens/budget/set_budget_screen.dart';
 import '../../widgets/month_picker_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,60 +355,111 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   child: Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: kSp16),
-                    child: AppCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Budget',
-                                style: tt.titleSmall?.copyWith(
-                                  color: ext.textPrimary,
-                                  fontWeight: FontWeight.w700,
+                    child: state.hasBudget
+                        ? AppCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Budget',
+                                      style: tt.titleSmall?.copyWith(
+                                        color: ext.textPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '${(state.budgetUsage * 100).round()}% used',
+                                      style: tt.bodySmall?.copyWith(
+                                          color: ext.textSecondary),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                '${(state.budgetUsage * 100).round()}% used',
-                                style: tt.bodySmall
-                                    ?.copyWith(color: ext.textSecondary),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: kSp4),
-                          Text(
-                            '$sym${nf.format(state.budget.limit.toInt())} monthly budget',
-                            style: tt.bodySmall
-                                ?.copyWith(color: ext.textSecondary),
-                          ),
-                          const SizedBox(height: kSp12),
-                          _BudgetBar(
-                              progress:
-                                  state.budgetUsage.clamp(0.0, 1.0),
-                              ext: ext),
-                          const SizedBox(height: kSp8),
-                          Row(
-                            children: [
-                              Text(
-                                '$sym${nf.format(state.budgetSpent.toInt())} used',
-                                style: tt.bodySmall?.copyWith(
-                                    color: ext.textSecondary),
-                              ),
-                              const Spacer(),
-                              Text(
-                                '$sym${nf.format(state.budgetRemaining.toInt())} left',
-                                style: tt.bodySmall?.copyWith(
-                                  color: cs.primary,
-                                  fontWeight: FontWeight.w600,
+                                const SizedBox(height: kSp4),
+                                Text(
+                                  '$sym${nf.format(state.budget!.limit.toInt())} monthly budget',
+                                  style: tt.bodySmall
+                                      ?.copyWith(color: ext.textSecondary),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: kSp12),
+                                _BudgetBar(
+                                    progress:
+                                        state.budgetUsage.clamp(0.0, 1.0),
+                                    ext: ext),
+                                const SizedBox(height: kSp8),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '$sym${nf.format(state.budgetSpent.toInt())} used',
+                                      style: tt.bodySmall?.copyWith(
+                                          color: ext.textSecondary),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '$sym${nf.format(state.budgetRemaining.toInt())} left',
+                                      style: tt.bodySmall?.copyWith(
+                                        color: cs.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          )
+                        : AppCard(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'No budget set',
+                                        style: tt.titleSmall?.copyWith(
+                                          color: ext.textPrimary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: kSp4),
+                                      Text(
+                                        'Set a monthly limit to see progress here.',
+                                        style: tt.bodySmall?.copyWith(
+                                            color: ext.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: kSp12),
+                                FilledButton(
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const SetBudgetScreen()),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: cs.primary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                          kRadiusButton),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: kSp14, vertical: kSp8),
+                                  ),
+                                  child: const Text('Set a budget',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13)),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
 

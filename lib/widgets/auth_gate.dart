@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../data/app_state.dart';
+import '../repositories/budget_repository.dart';
 import '../repositories/category_repository.dart';
+import '../repositories/notification_repository.dart';
 import '../repositories/transaction_repository.dart';
 import '../repositories/user_repository.dart';
 import '../screens/auth/login_screen.dart';
@@ -16,19 +18,12 @@ import '../screens/reports/reports_screen.dart';
 import '../screens/transactions/transactions_screen.dart';
 import '../services/auth_service.dart';
 import '../services/onboarding_prefs.dart';
-import '../widgets/app_bottom_nav.dart';
+import 'app_bottom_nav.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AuthGate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Placed after the splash screen.
-///
-/// Listens to [AuthService.authStateChanges]:
-/// - Signed in  → subscribes to profile stream + transaction stream, seeds
-///                default categories if needed, then shows [AppShell].
-/// - Signed out → cancels all streams, checks onboarding flag:
-///                seen → [LoginScreen]; not seen → [OnboardingScreen].
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -39,22 +34,15 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
-        // While Firebase resolves the initial auth state show a blank screen.
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+              body: Center(child: CircularProgressIndicator()));
         }
 
         final user = snapshot.data;
-
         if (user != null) {
-          // Signed in — subscribe to streams and show the main shell.
           return _AuthenticatedShell(user: user);
         }
-
-        // Signed out — cancel streams + check onboarding flag.
-        // Reading AppState here is safe; it doesn't trigger a rebuild.
         return _SignedOutCanceller(child: const _UnauthenticatedGate());
       },
     );
@@ -62,11 +50,9 @@ class AuthGate extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _SignedOutCanceller
+// _SignedOutCanceller — tears down all streams on logout
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Cancels the transaction stream the moment the user signs out, then renders
-/// [child]. Using initState ensures it runs exactly once per sign-out.
 class _SignedOutCanceller extends StatefulWidget {
   const _SignedOutCanceller({required this.child});
   final Widget child;
@@ -79,11 +65,8 @@ class _SignedOutCancellerState extends State<_SignedOutCanceller> {
   @override
   void initState() {
     super.initState();
-    // Cancel without triggering a rebuild on this widget.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<AppState>().cancelTransactionStream();
-      }
+      if (mounted) context.read<AppState>().cancelAll();
     });
   }
 
@@ -92,13 +75,9 @@ class _SignedOutCancellerState extends State<_SignedOutCanceller> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _AuthenticatedShell
+// _AuthenticatedShell — subscribes to all streams, then shows AppShell
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Subscribes to the Firestore profile stream AND the transaction stream,
-/// seeds categories on first login, then renders [AppShell].
-///
-/// Also shows a "Syncing your data…" SnackBar when [AppState.hasPendingWrites].
 class _AuthenticatedShell extends StatefulWidget {
   const _AuthenticatedShell({required this.user});
   final User user;
@@ -118,20 +97,28 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
   }
 
   Future<void> _init() async {
-    final repo = context.read<UserRepository>();
     final txRepo = context.read<TransactionRepository>();
+    final budgetRepo = context.read<BudgetRepository>();
+    final notifRepo = context.read<NotificationRepository>();
     final catRepo = context.read<CategoryRepository>();
+    final userRepo = context.read<UserRepository>();
     final appState = context.read<AppState>();
     final uid = widget.user.uid;
 
-    // 1. Subscribe to transaction stream immediately (offline cache loads fast).
-    appState.subscribeToTransactions(txRepo, uid);
+    // 1. Subscribe to all Firestore streams immediately.
+    appState.subscribeAll(
+      txRepo: txRepo,
+      budgetRepo: budgetRepo,
+      notifRepo: notifRepo,
+      catRepo: catRepo,
+      uid: uid,
+    );
 
-    // 2. Seed categories if needed (best-effort, fire-and-forget).
+    // 2. Seed categories on first login (best-effort, fire-and-forget).
     catRepo.seedIfEmpty(uid).ignore();
 
     // 3. Subscribe to profile stream.
-    _profileSub = repo.profileStream(uid).listen(
+    _profileSub = userRepo.profileStream(uid).listen(
       (profile) {
         if (!mounted) return;
         if (profile != null) {
@@ -141,25 +128,18 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
               widget.user.displayName ?? widget.user.email ?? 'User';
           final email = widget.user.email ?? '';
           appState.applyProfileSnapshot(
-            appState.profile.copyWith(name: displayName, email: email),
-          );
+              appState.profile.copyWith(name: displayName, email: email));
         }
-        if (!_loaded && mounted) {
-          setState(() => _loaded = true);
-        }
+        if (!_loaded && mounted) setState(() => _loaded = true);
       },
       onError: (_) {
-        if (!_loaded && mounted) {
-          setState(() => _loaded = true);
-        }
+        if (!_loaded && mounted) setState(() => _loaded = true);
       },
     );
 
-    // Fallback: show shell even if profile stream is slow.
+    // Fallback: show shell after 3 s even if profile stream is slow.
     await Future.delayed(const Duration(seconds: 3));
-    if (!_loaded && mounted) {
-      setState(() => _loaded = true);
-    }
+    if (!_loaded && mounted) setState(() => _loaded = true);
   }
 
   @override
@@ -172,8 +152,7 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
   Widget build(BuildContext context) {
     if (!_loaded) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+          body: Center(child: CircularProgressIndicator()));
     }
 
     return _SyncBannerWrapper(
@@ -193,8 +172,6 @@ class _AuthenticatedShellState extends State<_AuthenticatedShell> {
 // _SyncBannerWrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Listens to [AppState.hasPendingWrites] and shows the "Syncing your data…"
-/// SnackBar whenever there are unsynced offline writes.
 class _SyncBannerWrapper extends StatefulWidget {
   const _SyncBannerWrapper({required this.child});
   final Widget child;
@@ -208,7 +185,6 @@ class _SyncBannerWrapperState extends State<_SyncBannerWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    // Listen without rebuilding the heavy child.
     return _PendingWritesListener(
       onChanged: (hasPending) {
         if (!mounted) return;
@@ -216,24 +192,20 @@ class _SyncBannerWrapperState extends State<_SyncBannerWrapper> {
         if (messenger == null) return;
         if (hasPending && !_wasShowingBanner) {
           _wasShowingBanner = true;
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  ),
-                  SizedBox(width: 12),
-                  Text('Syncing your data…'),
-                ],
+          messenger.showSnackBar(const SnackBar(
+            content: Row(children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
               ),
-              duration: Duration(seconds: 30),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+              SizedBox(width: 12),
+              Text('Syncing your data…'),
+            ]),
+            duration: Duration(seconds: 30),
+            behavior: SnackBarBehavior.floating,
+          ));
         } else if (!hasPending && _wasShowingBanner) {
           _wasShowingBanner = false;
           messenger.hideCurrentSnackBar();
@@ -244,11 +216,10 @@ class _SyncBannerWrapperState extends State<_SyncBannerWrapper> {
   }
 }
 
-/// Helper that listens to [AppState.hasPendingWrites] and calls [onChanged].
 class _PendingWritesListener extends StatefulWidget {
   const _PendingWritesListener(
       {required this.onChanged, required this.child});
-  final void Function(bool hasPending) onChanged;
+  final void Function(bool) onChanged;
   final Widget child;
 
   @override
@@ -265,7 +236,6 @@ class _PendingWritesListenerState extends State<_PendingWritesListener> {
     final current = context.watch<AppState>().hasPendingWrites;
     if (current != _last) {
       _last = current;
-      // Defer so we're not calling setState during build.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) widget.onChanged(current);
       });
@@ -280,7 +250,6 @@ class _PendingWritesListenerState extends State<_PendingWritesListener> {
 // _UnauthenticatedGate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Decides between [OnboardingScreen] and [LoginScreen] based on shared prefs.
 class _UnauthenticatedGate extends StatefulWidget {
   const _UnauthenticatedGate();
 
@@ -306,8 +275,7 @@ class _UnauthenticatedGateState extends State<_UnauthenticatedGate> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return _screen ??
-        const Scaffold(body: Center(child: CircularProgressIndicator()));
-  }
+  Widget build(BuildContext context) =>
+      _screen ??
+      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }

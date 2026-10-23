@@ -294,49 +294,49 @@ final List<AppNotification> mockNotifications = [
 /// Seed data for the Manage Categories screen.
 /// Colors are intentional model data, not UI constants.
 final List<ManagedCategory> mockManagedCategories = [
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc1',
     name: 'Groceries',
     icon: Icons.shopping_basket_rounded,
     color: Color(0xFF00897B),
     description: 'The everyday essentials',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc2',
     name: 'Food & drink',
     icon: Icons.restaurant_rounded,
     color: Color(0xFFFFB300),
     description: 'Coffee, bites & nights out',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc3',
     name: 'Transport',
     icon: Icons.directions_car_rounded,
     color: Color(0xFF2196F3),
     description: 'From here to there',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc4',
     name: 'Shopping',
     icon: Icons.shopping_bag_rounded,
     color: Color(0xFF7E57C2),
     description: 'A little something for you',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc5',
     name: 'Home & bills',
     icon: Icons.home_rounded,
     color: Color(0xFFE53935),
     description: 'Keeping life running',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc6',
     name: 'Entertainment',
     icon: Icons.movie_rounded,
     color: Color(0xFFEC407A),
     description: 'All the good times',
   ),
-  const ManagedCategory(
+  ManagedCategory(
     id: 'mc7',
     name: 'Health',
     icon: Icons.favorite_rounded,

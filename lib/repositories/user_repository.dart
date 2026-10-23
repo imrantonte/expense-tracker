@@ -99,7 +99,7 @@ class UserRepository {
   /// Errors are swallowed so a partial failure doesn't block account deletion.
   Future<void> deleteUserData(String uid) async {
     // Delete known subcollections first.
-    for (final sub in ['transactions', 'categories']) {
+    for (final sub in ['transactions', 'categories', 'budgets', 'notifications']) {
       try {
         final snap = await _userDoc(uid).collection(sub).get();
         for (final doc in snap.docs) {

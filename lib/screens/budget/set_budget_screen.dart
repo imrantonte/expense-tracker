@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +7,10 @@ import 'package:provider/provider.dart';
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
+import '../../models/app_notification.dart';
 import '../../models/budget.dart';
+import '../../repositories/budget_repository.dart';
+import '../../repositories/notification_repository.dart';
 import '../../widgets/app_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +28,7 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
   late final TextEditingController _amountCtrl;
   late double _threshold; // 0.0 – 1.0
   late bool _notifyClose;
+  bool _saving = false;
 
   final _nf = NumberFormat('#,##0');
   final _focusNode = FocusNode();
@@ -32,10 +37,11 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
   void initState() {
     super.initState();
     final state = context.read<AppState>();
+    final b = state.budget; // nullable — null means no budget set yet
     _amountCtrl = TextEditingController(
-        text: state.budget.limit.toInt().toString());
-    _threshold = state.budget.alertThreshold;
-    _notifyClose = true;
+        text: b != null && b.limit > 0 ? b.limit.toInt().toString() : '');
+    _threshold = b?.alertThreshold ?? 0.80;
+    _notifyClose = b?.notifyEnabled ?? true;
     _focusNode.requestFocus();
   }
 
@@ -50,7 +56,7 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
 
   double get _budgetAmount =>
       double.tryParse(_amountCtrl.text.replaceAll(',', '')) ??
-      context.read<AppState>().budget.limit;
+      context.read<AppState>().budget?.limit ?? 0;
 
   double get _spent => context.read<AppState>().budgetSpent;
 
@@ -65,7 +71,7 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
-  void _save() {
+  Future<void> _save() async {
     final amount = _budgetAmount;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -73,10 +79,56 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
       );
       return;
     }
-    context.read<AppState>().setBudget(Budget(
-          limit: amount,
-          alertThreshold: _threshold,
-        ));
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Not signed in. Please log in again.')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    final now = DateTime.now();
+    final budget = Budget(
+      limit: amount,
+      alertThreshold: _threshold,
+      notifyEnabled: _notifyClose,
+    );
+
+    final repo = context.read<BudgetRepository>();
+    final notifRepo = context.read<NotificationRepository>();
+    final state = context.read<AppState>();
+    final sym = state.currencySymbol;
+    final isNew = !state.hasBudget;
+
+    try {
+      await repo.saveBudget(uid, now.year, now.month, budget);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save budget. Please try again.')),
+        );
+      }
+      return;
+    }
+
+    if (mounted) state.setBudget(budget);
+
+    if (isNew) {
+      final monthLabel = DateFormat('MMMM').format(now);
+      notifRepo.addNotification(
+        uid: uid,
+        title: 'Your $monthLabel budget is ready',
+        body:
+            'Your monthly limit is $sym${_nf.format(amount.toInt())}. You\'ve got a plan!',
+        type: NotificationType.budgetSet,
+      ).ignore();
+    }
+
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
 
@@ -432,14 +484,21 @@ class _SetBudgetScreenState extends State<SetBudgetScreen> {
               height: kButtonHeight,
               width: double.infinity,
               child: FilledButton(
-                onPressed: _save,
+                onPressed: _saving ? null : _save,
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(kRadiusButton),
                   ),
                 ),
-                child: const Text('Save Budget',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
+                child: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Save Budget',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
               ),
             ),
           ],

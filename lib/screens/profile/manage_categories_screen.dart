@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +6,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../models/managed_category.dart';
+import '../../repositories/category_repository.dart';
 import '../../widgets/app_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ class ManageCategoriesScreen extends StatelessWidget {
                 _CategoryCard(
                   cat: cat,
                   onEdit: () => _openDialog(context, state, existing: cat),
+                  onDelete: () => _deleteCategory(context, state, cat),
                   ext: ext,
                   cs: cs,
                   tt: tt,
@@ -120,25 +123,97 @@ class ManageCategoriesScreen extends StatelessWidget {
     AppState state, {
     ManagedCategory? existing,
   }) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final repo = context.read<CategoryRepository>();
+
     showDialog<void>(
       context: context,
       barrierColor: Colors.black54,
       builder: (_) => _CategoryDialog(
         existing: existing,
-        onSave: (cat) {
-          if (existing != null) {
-            state.updateManagedCategory(cat);
-          } else {
-            state.addManagedCategory(cat);
+        onSave: (cat) async {
+          try {
+            if (existing != null) {
+              await repo.update(uid, cat);
+              state.updateManagedCategory(cat);
+            } else {
+              final id = await repo.add(uid, cat);
+              state.addManagedCategory(cat.copyWith(id: id));
+            }
+          } catch (_) {
+            // Stream will reconcile; optimistic update may persist anyway.
           }
         },
       ),
     );
   }
+
+  static Future<void> _deleteCategory(
+    BuildContext context,
+    AppState state,
+    ManagedCategory cat,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final repo = context.read<CategoryRepository>();
+
+    // Check if any transaction references this category.
+    final inUse = await repo.isCategoryInUse(uid, cat.id);
+    if (!context.mounted) return;
+
+    if (inUse) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              '"${cat.name}" is used by existing transactions and cannot be deleted.',
+            ),
+          ),
+        );
+      return;
+    }
+
+    // Confirm deletion.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete category?'),
+        content: Text(
+          'Delete "${cat.name}"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(ctx).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await repo.delete(uid, cat.id);
+      state.removeManagedCategory(cat.id);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not delete. Please try again.')),
+        );
+      }
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// "+ Add Category" FAB
+// "+" Add Category FAB
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AddCategoryFab extends StatelessWidget {
@@ -177,12 +252,14 @@ class _CategoryCard extends StatelessWidget {
   const _CategoryCard({
     required this.cat,
     required this.onEdit,
+    required this.onDelete,
     required this.ext,
     required this.cs,
     required this.tt,
   });
   final ManagedCategory cat;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
   final AppThemeExt ext;
   final ColorScheme cs;
   final TextTheme tt;
@@ -240,7 +317,16 @@ class _CategoryCard extends StatelessWidget {
           // Edit icon
           GestureDetector(
             onTap: onEdit,
-            child: Icon(Icons.edit_outlined, color: ext.textSecondary, size: 20),
+            child: Icon(Icons.edit_outlined,
+                color: ext.textSecondary, size: 20),
+          ),
+          const SizedBox(width: kSp12),
+
+          // Delete icon
+          GestureDetector(
+            onTap: onDelete,
+            child: Icon(Icons.delete_outline_rounded,
+                color: ext.textSecondary, size: 20),
           ),
         ],
       ),
@@ -255,7 +341,7 @@ class _CategoryCard extends StatelessWidget {
 class _CategoryDialog extends StatefulWidget {
   const _CategoryDialog({this.existing, required this.onSave});
   final ManagedCategory? existing;
-  final ValueChanged<ManagedCategory> onSave;
+  final Future<void> Function(ManagedCategory) onSave;
 
   @override
   State<_CategoryDialog> createState() => _CategoryDialogState();
@@ -265,6 +351,8 @@ class _CategoryDialogState extends State<_CategoryDialog> {
   late final TextEditingController _nameCtrl;
   late IconData _selectedIcon;
   late Color _selectedColor;
+  late bool _isIncome;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -273,6 +361,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
     _nameCtrl = TextEditingController(text: ex?.name ?? '');
     _selectedIcon = ex?.icon ?? _kIcons[0];
     _selectedColor = ex?.color ?? _kColors[0];
+    _isIncome = ex?.isIncome ?? false;
   }
 
   @override
@@ -281,7 +370,7 @@ class _CategoryDialogState extends State<_CategoryDialog> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -290,15 +379,16 @@ class _CategoryDialogState extends State<_CategoryDialog> {
       return;
     }
     final cat = ManagedCategory(
-      id: widget.existing?.id ??
-          'mc_${DateTime.now().millisecondsSinceEpoch}',
+      id: widget.existing?.id ?? '',
       name: name,
       icon: _selectedIcon,
       color: _selectedColor,
+      isIncome: _isIncome,
       description: widget.existing?.description ?? '',
     );
-    widget.onSave(cat);
-    Navigator.pop(context);
+    setState(() => _saving = true);
+    await widget.onSave(cat);
+    if (mounted) Navigator.pop(context);
   }
 
   @override
@@ -344,6 +434,30 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 floatingLabelStyle:
                     TextStyle(color: cs.primary, fontSize: 13),
               ),
+            ),
+            const SizedBox(height: kSp12),
+
+            // ── Income / Expense toggle ───────────────────────────────
+            Row(
+              children: [
+                _ToggleChip(
+                  label: 'Expense',
+                  selected: !_isIncome,
+                  cs: cs,
+                  ext: ext,
+                  tt: tt,
+                  onTap: () => setState(() => _isIncome = false),
+                ),
+                const SizedBox(width: kSp8),
+                _ToggleChip(
+                  label: 'Income',
+                  selected: _isIncome,
+                  cs: cs,
+                  ext: ext,
+                  tt: tt,
+                  onTap: () => setState(() => _isIncome = true),
+                ),
+              ],
             ),
             const SizedBox(height: kSp20),
 
@@ -448,7 +562,8 @@ class _CategoryDialogState extends State<_CategoryDialog> {
               children: [
                 Expanded(
                   child: TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed:
+                        _saving ? null : () => Navigator.pop(context),
                     style: TextButton.styleFrom(
                       foregroundColor: cs.primary,
                     ),
@@ -459,14 +574,21 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 const SizedBox(width: kSp12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: _save,
+                    onPressed: _saving ? null : _save,
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
                           borderRadius:
                               BorderRadius.circular(kRadiusButton)),
                     ),
-                    child: const Text('Save',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Text('Save',
+                            style:
+                                TextStyle(fontWeight: FontWeight.w700)),
                   ),
                 ),
               ],
@@ -478,3 +600,48 @@ class _CategoryDialogState extends State<_CategoryDialog> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Small Expense / Income toggle chip
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ToggleChip extends StatelessWidget {
+  const _ToggleChip({
+    required this.label,
+    required this.selected,
+    required this.cs,
+    required this.ext,
+    required this.tt,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final ColorScheme cs;
+  final AppThemeExt ext;
+  final TextTheme tt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(
+            horizontal: kSp12, vertical: kSp6),
+        decoration: BoxDecoration(
+          color: selected ? cs.primary : ext.cardBackground,
+          borderRadius: BorderRadius.circular(kRadiusButton),
+          border: Border.all(
+              color: selected ? cs.primary : ext.cardBorder),
+        ),
+        child: Text(
+          label,
+          style: tt.labelMedium?.copyWith(
+            color: selected ? Colors.white : ext.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}

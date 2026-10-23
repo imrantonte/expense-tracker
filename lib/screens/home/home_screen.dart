@@ -9,6 +9,7 @@ import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../models/transaction_item.dart';
 import '../../screens/add_transaction/add_transaction_screen.dart';
+import '../../screens/budget/set_budget_screen.dart';
 import '../../screens/notifications/notifications_screen.dart';
 import '../../screens/transaction_detail/transaction_detail_screen.dart';
 import '../../widgets/app_card.dart';
@@ -352,6 +353,55 @@ class _BudgetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ext = Theme.of(context).extension<AppThemeExt>()!;
     final tt = Theme.of(context).textTheme;
+
+    if (!state.hasBudget) {
+      final cs = Theme.of(context).colorScheme;
+      return AppCard(
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'No budget set',
+                    style: tt.titleSmall?.copyWith(
+                      color: ext.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: kSp4),
+                  Text(
+                    'Set a monthly limit to track your spending.',
+                    style: tt.bodySmall?.copyWith(color: ext.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: kSp12),
+            FilledButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SetBudgetScreen()),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: cs.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(kRadiusButton),
+                ),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: kSp14, vertical: kSp8),
+              ),
+              child: const Text('Set a budget',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final budget = state.budget!;
     final pct = (state.budgetUsage * 100).round();
 
     return AppCard(
@@ -371,7 +421,7 @@ class _BudgetCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '$sym${_nf.format(state.budget.limit.toInt())}',
+                '$sym${_nf.format(budget.limit.toInt())}',
                 style: tt.titleSmall?.copyWith(
                   color: ext.textPrimary,
                   fontWeight: FontWeight.w700,

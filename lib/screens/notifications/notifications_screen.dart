@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../models/app_notification.dart';
+import '../../repositories/notification_repository.dart';
 import '../../screens/notifications/notification_settings_screen.dart';
 import '../../widgets/app_card.dart';
 
@@ -144,7 +146,18 @@ class NotificationsScreen extends StatelessWidget {
                   ),
                   const Spacer(),
                   TextButton(
-                    onPressed: state.markAllNotificationsRead,
+                    onPressed: () {
+                      final uid = FirebaseAuth.instance.currentUser?.uid;
+                      // Optimistic local update.
+                      state.markAllNotificationsRead();
+                      // Persist to Firestore.
+                      if (uid != null) {
+                        context
+                            .read<NotificationRepository>()
+                            .markAllRead(uid)
+                            .ignore();
+                      }
+                    },
                     style: TextButton.styleFrom(
                       foregroundColor: cs.primary,
                       padding: EdgeInsets.zero,
@@ -175,8 +188,21 @@ class NotificationsScreen extends StatelessWidget {
                       notif: notif,
                       timeLabel: _formatTime(notif.time),
                       iconWidget: _icon(notif.type, ext, cs),
-                      onTap: () =>
-                          context.read<AppState>().markNotificationRead(notif.id),
+                      onTap: () {
+                        final uid =
+                            FirebaseAuth.instance.currentUser?.uid;
+                        // Optimistic local update.
+                        context
+                            .read<AppState>()
+                            .markNotificationRead(notif.id);
+                        // Persist to Firestore.
+                        if (uid != null) {
+                          context
+                              .read<NotificationRepository>()
+                              .markRead(uid, notif.id)
+                              .ignore();
+                        }
+                      },
                       ext: ext,
                       cs: cs,
                       tt: tt,
