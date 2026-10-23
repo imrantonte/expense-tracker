@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' hide Category;
 
 import '../models/managed_category.dart';
 import '../models/models.dart';
+import '../repositories/transaction_repository.dart';
 import 'mock_data.dart' as mock;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +71,8 @@ class TransactionFilter {
 /// Central application state, provided at the widget-tree root via Provider.
 ///
 /// Profile data is synced from Firestore via [UserRepository.profileStream].
-/// All other data is currently in-memory (mock).
+/// Transaction data is synced from Firestore via [TransactionRepository.watchTransactions].
+/// Totals and breakdowns are computed live from real data.
 ///
 /// ```dart
 /// // Subscribe to rebuilds:
@@ -79,22 +84,34 @@ class TransactionFilter {
 class AppState extends ChangeNotifier {
   AppState()
       : _profile = mock.mockUser,
-        _transactions = List.from(mock.mockTransactions),
+        _transactions = [],
         _notifications = List.from(mock.mockNotifications),
         _budget = mock.mockBudget,
         _managedCategories = List.from(mock.mockManagedCategories),
-        _selectedMonth = 10,
-        _selectedYear = 2026,
+        _selectedMonth = DateTime.now().month,
+        _selectedYear = DateTime.now().year,
         _filter = const TransactionFilter();
 
   // ── Core data ──────────────────────────────────────────────────────────────
 
   UserProfile _profile;
-  final List<TransactionItem> _transactions;
+  List<TransactionItem> _transactions; // live from Firestore
   final List<AppNotification> _notifications;
   Budget _budget;
   // ignore: prefer_final_fields — mutated by index in updateManagedCategory
   List<ManagedCategory> _managedCategories;
+
+  // ── Firestore stream subscription ──────────────────────────────────────────
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _txSub;
+  bool _hasPendingWrites = false;
+  bool _txFirstLoadFailed = false;
+
+  /// `true` when Firestore has local writes that haven't synced to the server.
+  bool get hasPendingWrites => _hasPendingWrites;
+
+  /// `true` when the initial transaction fetch failed (no cache + no network).
+  bool get txFirstLoadFailed => _txFirstLoadFailed;
 
   // ── View state ─────────────────────────────────────────────────────────────
 
@@ -112,6 +129,61 @@ class AppState extends ChangeNotifier {
   int _quietToMin = 0;
   bool _skipIfLogged = true;
   bool _budgetAlerts = true;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STREAM MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Call this after sign-in to start receiving live Firestore transactions.
+  void subscribeToTransactions(TransactionRepository repo, String uid) {
+    _txSub?.cancel();
+    _txFirstLoadFailed = false;
+    _txSub = repo.watchRaw(uid).listen(
+      (snap) {
+        _hasPendingWrites = snap.metadata.hasPendingWrites;
+        _transactions = snap.docs
+            .map((doc) {
+              try {
+                final d = doc.data();
+                return TransactionItem(
+                  id: doc.id,
+                  title: (d['title'] as String?) ?? '',
+                  note: d['note'] as String?,
+                  categoryId: (d['categoryId'] as String?) ?? '',
+                  amount: ((d['amount'] as num?) ?? 0).toDouble(),
+                  isIncome: (d['isIncome'] as bool?) ?? false,
+                  date: d['date'] is Timestamp
+                      ? (d['date'] as Timestamp).toDate()
+                      : DateTime.now(),
+                );
+              } catch (_) {
+                return null;
+              }
+            })
+            .whereType<TransactionItem>()
+            .toList();
+        notifyListeners();
+      },
+      onError: (_) {
+        // If first load already received data, keep what we have.
+        // If never received data, mark as failed for the UI.
+        if (_transactions.isEmpty) {
+          _txFirstLoadFailed = true;
+          notifyListeners();
+        }
+      },
+    );
+  }
+
+  /// Call this on sign-out to stop receiving updates and clear all data.
+  void cancelTransactionStream() {
+    _txSub?.cancel();
+    _txSub = null;
+    _transactions = [];
+    _hasPendingWrites = false;
+    _txFirstLoadFailed = false;
+    notifyListeners();
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // READ-ONLY ACCESSORS
@@ -152,8 +224,8 @@ class AppState extends ChangeNotifier {
 
   Budget get budget => _budget;
 
-  /// Amount spent against the budget this month (from mock constant).
-  double get budgetSpent => mock.mockMonthSpent;
+  /// Amount spent against the budget this month — computed from real data.
+  double get budgetSpent => monthSpent;
 
   /// Remaining budget, clamped to 0 if over-budget.
   double get budgetRemaining =>
@@ -172,12 +244,11 @@ class AppState extends ChangeNotifier {
 
   /// All transactions for the selected month/year, newest first.
   List<TransactionItem> get transactions {
-    final list = _transactions
+    return _transactions
         .where((t) =>
             t.date.month == _selectedMonth && t.date.year == _selectedYear)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-    return list;
   }
 
   /// Transactions after applying the active [filter], newest first.
@@ -205,26 +276,58 @@ class AppState extends ChangeNotifier {
 
   TransactionFilter get filter => _filter;
 
-  // ── Month summary constants ─────────────────────────────────────────────────
-  //
-  // Fixed demo values representing the full October 2026 picture.
-  // Kept separate from the 6 seed rows so the UI shows realistic totals.
+  // ── Month summary — computed from real data ────────────────────────────────
 
-  double get monthEarned => mock.mockMonthEarned;
-  double get monthSpent => mock.mockMonthSpent;
-  double get monthLeft => mock.mockMonthLeft;
+  /// Total income for the selected month.
+  double get monthEarned {
+    return transactions
+        .where((t) => t.isIncome)
+        .fold(0.0, (s, t) => s + t.amount);
+  }
 
-  /// Category spending breakdown — categoryId → taka amount.
-  Map<String, double> get categoryBreakdown => mock.mockCategoryBreakdown;
+  /// Total expenses for the selected month.
+  double get monthSpent {
+    return transactions
+        .where((t) => !t.isIncome)
+        .fold(0.0, (s, t) => s + t.amount);
+  }
 
-  /// Category spending as percentages — categoryId → 0–100.
-  Map<String, double> get categoryPercent => mock.mockCategoryPercent;
+  /// Income minus expenses for the selected month.
+  double get monthLeft => monthEarned - monthSpent;
 
-  /// Weekly income figures (4 data points, weeks 1–4).
-  List<double> get weeklyIncome => mock.mockWeeklyIncome;
+  /// Category spending breakdown — categoryId → amount (expenses only).
+  Map<String, double> get categoryBreakdown {
+    final map = <String, double>{};
+    for (final t in transactions.where((t) => !t.isIncome)) {
+      map[t.categoryId] = (map[t.categoryId] ?? 0) + t.amount;
+    }
+    return map;
+  }
 
-  /// Weekly expense figures (4 data points, weeks 1–4).
-  List<double> get weeklyExpenses => mock.mockWeeklyExpenses;
+  /// Category breakdown as percentages (0–100).
+  Map<String, double> get categoryPercent {
+    final breakdown = categoryBreakdown;
+    final total = breakdown.values.fold(0.0, (s, v) => s + v);
+    if (total == 0) return {};
+    return breakdown
+        .map((k, v) => MapEntry(k, (v / total * 100).roundToDouble()));
+  }
+
+  /// Weekly income figures — 4 data points (weeks 1–4 of selected month).
+  List<double> get weeklyIncome => _weeklyTotals(isIncome: true);
+
+  /// Weekly expense figures — 4 data points (weeks 1–4 of selected month).
+  List<double> get weeklyExpenses => _weeklyTotals(isIncome: false);
+
+  List<double> _weeklyTotals({required bool isIncome}) {
+    final result = [0.0, 0.0, 0.0, 0.0];
+    for (final t in transactions.where((t) => t.isIncome == isIncome)) {
+      // Week index: days 1–7 → 0, 8–14 → 1, 15–21 → 2, 22+ → 3
+      final weekIdx = ((t.date.day - 1) ~/ 7).clamp(0, 3);
+      result[weekIdx] += t.amount;
+    }
+    return result;
+  }
 
   // ── Notifications ──────────────────────────────────────────────────────────
 
@@ -253,15 +356,18 @@ class AppState extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   // ── Transactions ───────────────────────────────────────────────────────────
+  // These in-memory methods are kept for callers that need an immediate local
+  // echo before the Firestore stream confirms. They are NOT called for
+  // Firestore writes—use TransactionRepository directly from the screen.
 
-  /// Inserts [item] at the front of the transaction list.
-  void addTransaction(TransactionItem item) {
+  /// Inserts [item] at the front of the in-memory transaction list.
+  void addTransactionLocal(TransactionItem item) {
     _transactions.insert(0, item);
     notifyListeners();
   }
 
-  /// Replaces the transaction with the same [TransactionItem.id].
-  void updateTransaction(TransactionItem item) {
+  /// Replaces the transaction with the same [TransactionItem.id] in memory.
+  void updateTransactionLocal(TransactionItem item) {
     final i = _transactions.indexWhere((t) => t.id == item.id);
     if (i != -1) {
       _transactions[i] = item;
@@ -269,8 +375,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Removes the transaction with [id].
-  void deleteTransaction(String id) {
+  /// Removes the transaction with [id] from memory.
+  void deleteTransactionLocal(String id) {
     _transactions.removeWhere((t) => t.id == id);
     notifyListeners();
   }
@@ -423,5 +529,11 @@ class AppState extends ChangeNotifier {
       _managedCategories[i] = cat;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _txSub?.cancel();
+    super.dispose();
   }
 }

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,8 @@ import 'core/theme.dart';
 import 'core/theme_controller.dart';
 import 'data/app_state.dart';
 import 'firebase_options.dart';
+import 'repositories/category_repository.dart';
+import 'repositories/transaction_repository.dart';
 import 'repositories/user_repository.dart';
 import 'screens/splash/splash_screen.dart';
 import 'services/auth_service.dart';
@@ -21,6 +24,12 @@ void main() async {
   // TODO(debug): remove before production.
   // ignore: avoid_print
   debugPrint('[Firebase] Initialized app: ${firebaseApp.name}');
+
+  // Enable Firestore offline persistence (unlimited cache size).
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
   // Portrait-only lock.
   SystemChrome.setPreferredOrientations([
@@ -44,6 +53,9 @@ void main() async {
         // Services — created once, injected wherever needed.
         Provider<AuthService>(create: (_) => AuthService()),
         Provider<UserRepository>(create: (_) => UserRepository()),
+        Provider<TransactionRepository>(
+            create: (_) => TransactionRepository()),
+        Provider<CategoryRepository>(create: (_) => CategoryRepository()),
       ],
       child: const WhereDidItGoApp(),
     ),

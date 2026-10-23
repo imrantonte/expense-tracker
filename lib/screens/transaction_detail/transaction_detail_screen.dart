@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,7 @@ import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../models/transaction_item.dart';
+import '../../repositories/transaction_repository.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/primary_button.dart';
 import '../add_transaction/add_transaction_screen.dart';
@@ -15,10 +17,18 @@ import '../add_transaction/add_transaction_screen.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Displays the full details of a [TransactionItem] with Edit and Delete actions.
-class TransactionDetailScreen extends StatelessWidget {
+class TransactionDetailScreen extends StatefulWidget {
   const TransactionDetailScreen({super.key, required this.transaction});
 
   final TransactionItem transaction;
+
+  @override
+  State<TransactionDetailScreen> createState() =>
+      _TransactionDetailScreenState();
+}
+
+class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
+  bool _deleting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -27,9 +37,9 @@ class TransactionDetailScreen extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final state = context.watch<AppState>();
     final sym = state.currencySymbol;
-    final cat = state.findCategory(transaction.categoryId);
+    final cat = state.findCategory(widget.transaction.categoryId);
 
-    final isIncome = transaction.isIncome;
+    final isIncome = widget.transaction.isIncome;
     final typeLabel = isIncome ? 'Income' : 'Expense';
     final typeColor = isIncome ? ext.income : ext.expense;
 
@@ -81,7 +91,7 @@ class TransactionDetailScreen extends StatelessWidget {
                   // Amount
                   _AmountDisplay(
                     sym: sym,
-                    amount: transaction.amount,
+                    amount: widget.transaction.amount,
                     ext: ext,
                     cs: cs,
                   ),
@@ -95,7 +105,7 @@ class TransactionDetailScreen extends StatelessWidget {
                         Icon(cat.icon, size: 22, color: cs.primary),
                       const SizedBox(width: kSp8),
                       Text(
-                        cat?.name ?? transaction.categoryId,
+                        cat?.name ?? widget.transaction.categoryId,
                         style: tt.titleSmall?.copyWith(
                           color: ext.textPrimary,
                           fontWeight: FontWeight.w600,
@@ -128,7 +138,7 @@ class TransactionDetailScreen extends StatelessWidget {
                   _InfoRow(
                     icon: Icons.calendar_month_outlined,
                     label: 'Date',
-                    value: _formatDate(transaction.date),
+                    value: _formatDate(widget.transaction.date),
                     ext: ext,
                     cs: cs,
                   ),
@@ -142,9 +152,9 @@ class TransactionDetailScreen extends StatelessWidget {
                   _InfoRow(
                     icon: Icons.notes_rounded,
                     label: 'Note',
-                    value: (transaction.note?.isNotEmpty == true)
-                        ? transaction.note!
-                        : transaction.title,
+                    value: (widget.transaction.note?.isNotEmpty == true)
+                        ? widget.transaction.note!
+                        : widget.transaction.title,
                     ext: ext,
                     cs: cs,
                   ),
@@ -158,13 +168,14 @@ class TransactionDetailScreen extends StatelessWidget {
             PrimaryButton(
               label: 'Edit',
               icon: Icons.edit_rounded,
-              onPressed: () => _openEdit(context),
+              onPressed: _deleting ? null : () => _openEdit(context),
             ),
             const SizedBox(height: kSp12),
 
             // ── Delete button (red outlined) ──────────────────────────────
             _DeleteOutlinedButton(
-              onPressed: () => _confirmDelete(context),
+              isLoading: _deleting,
+              onPressed: _deleting ? null : () => _confirmDelete(context),
             ),
           ],
         ),
@@ -184,24 +195,52 @@ class TransactionDetailScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AddTransactionScreen(
-          prefilled: transaction,
-          initialIsExpense: !transaction.isIncome,
+          prefilled: widget.transaction,
+          initialIsExpense: !widget.transaction.isIncome,
         ),
       ),
     );
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
+    // Capture everything we need from context BEFORE the first await.
+    final repo = context.read<TransactionRepository>();
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => const _DeleteDialog(),
     );
-    if (confirmed == true && context.mounted) {
-      context.read<AppState>().deleteTransaction(transaction.id);
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context)
+    if (confirmed != true || !mounted) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid == null) {
+      messenger
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('Transaction deleted.')));
+        ..showSnackBar(
+            const SnackBar(content: Text('Not signed in. Please log in again.')));
+      return;
+    }
+
+    setState(() => _deleting = true);
+    try {
+      await repo.delete(uid, widget.transaction.id);
+      if (mounted) {
+        nav.pop();
+        messenger
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('Transaction deleted.')));
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _deleting = false);
+        messenger
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(
+              content: Text('Could not delete. Please try again.')));
+      }
     }
   }
 }
@@ -310,12 +349,16 @@ class _InfoRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Red outlined delete button
+// Red outlined delete button (with loading state)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DeleteOutlinedButton extends StatelessWidget {
-  const _DeleteOutlinedButton({required this.onPressed});
-  final VoidCallback onPressed;
+  const _DeleteOutlinedButton({
+    required this.onPressed,
+    this.isLoading = false,
+  });
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -327,7 +370,14 @@ class _DeleteOutlinedButton extends StatelessWidget {
       height: kButtonHeight,
       child: OutlinedButton.icon(
         onPressed: onPressed,
-        icon: Icon(Icons.delete_outline_rounded, color: ext.expense, size: 18),
+        icon: isLoading
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: ext.expense),
+              )
+            : Icon(Icons.delete_outline_rounded, color: ext.expense, size: 18),
         label: Text(
           'Delete',
           style: tt.labelLarge?.copyWith(

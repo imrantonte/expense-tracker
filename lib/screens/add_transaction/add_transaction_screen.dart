@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +9,7 @@ import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../models/category.dart';
 import '../../models/transaction_item.dart';
+import '../../repositories/transaction_repository.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/primary_button.dart';
 
@@ -101,14 +103,21 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     setState(() => _saving = true);
 
     final state = context.read<AppState>();
+    final repo = context.read<TransactionRepository>();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid == null) {
+      _snack('Not signed in. Please log in again.');
+      setState(() => _saving = false);
+      return;
+    }
+
     final isEditing = widget.prefilled != null;
     final noteText = _noteCtrl.text.trim();
     final cat = state.findCategory(_selectedCategoryId!);
 
     final tx = TransactionItem(
-      id: isEditing
-          ? widget.prefilled!.id
-          : 'tx_${DateTime.now().millisecondsSinceEpoch}',
+      id: isEditing ? widget.prefilled!.id : '',
       title: noteText.isEmpty ? (cat?.name ?? _selectedCategoryId!) : noteText,
       note: noteText.isEmpty ? null : noteText,
       categoryId: _selectedCategoryId!,
@@ -117,10 +126,20 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       isIncome: !_isExpense,
     );
 
-    if (isEditing) {
-      state.updateTransaction(tx);
-    } else {
-      state.addTransaction(tx);
+    try {
+      if (isEditing) {
+        await repo.update(uid, tx);
+      } else {
+        await repo.add(uid, tx);
+      }
+    } catch (_) {
+      if (mounted) {
+        _snack(isEditing
+            ? 'Could not update transaction. Please try again.'
+            : 'Could not save transaction. Please try again.');
+        setState(() => _saving = false);
+      }
+      return;
     }
 
     if (!mounted) return;

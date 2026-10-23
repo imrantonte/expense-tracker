@@ -38,30 +38,44 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   // ── Per-period bar-chart series ────────────────────────────────────────────
 
-  ({List<double> income, List<double> expense, List<String> xLabels, double maxY, double interval})
-      _barsFor(AppState state) => switch (_period) {
-            'Daily' => (
-                income: [0, 3000, 0, 0],
-                expense: [180, 240, 0, 0],
-                xLabels: ['9am', '12pm', '3pm', '6pm'],
-                maxY: 5000.0,
-                interval: 2500.0,
-              ),
-            'Weekly' => (
-                income: [0, 3000, 0, 2000],
-                expense: [120, 660, 0, 1020],
-                xLabels: ['Mon', 'Tue', 'Wed', 'Thu'],
-                maxY: 5000.0,
-                interval: 2500.0,
-              ),
-            _ => (
-                income: state.weeklyIncome,
-                expense: state.weeklyExpenses,
-                xLabels: const ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-                maxY: 10000.0,
-                interval: 4000.0,
-              ),
-          };
+  ({List<double> income, List<double> expense, List<String> xLabels,
+      double maxY, double interval})
+      _barsFor(AppState state) {
+    if (_period == 'Daily') {
+      return (
+        income: [0, 3000, 0, 0],
+        expense: [180, 240, 0, 0],
+        xLabels: ['9am', '12pm', '3pm', '6pm'],
+        maxY: 5000.0,
+        interval: 2500.0,
+      );
+    }
+    if (_period == 'Weekly') {
+      return (
+        income: [0, 3000, 0, 2000],
+        expense: [120, 660, 0, 1020],
+        xLabels: ['Mon', 'Tue', 'Wed', 'Thu'],
+        maxY: 5000.0,
+        interval: 2500.0,
+      );
+    }
+    // Monthly — use real computed weekly totals.
+    final income = state.weeklyIncome;
+    final expense = state.weeklyExpenses;
+    final allValues = [...income, ...expense];
+    final maxVal = allValues.isEmpty
+        ? 1000.0
+        : allValues.reduce((a, b) => a > b ? a : b);
+    final maxY = maxVal <= 0 ? 1000.0 : (maxVal * 1.3).ceilToDouble();
+    final interval = (maxY / 3).ceilToDouble().clamp(100.0, double.infinity);
+    return (
+      income: income,
+      expense: expense,
+      xLabels: const ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+      maxY: maxY,
+      interval: interval,
+    );
+  }
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
@@ -80,16 +94,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final summary = _summaryFor(state);
             final bars = _barsFor(state);
 
-            // Donut fixed to monthly breakdown
+            // Donut — built dynamically from real categoryBreakdown (up to 5).
             final breakdown = state.categoryBreakdown;
             final percent = state.categoryPercent;
-            const donutIds = ['food', 'rent', 'transport', 'other_expense'];
-            final donutColors = [
+
+            // Sort by amount descending, cap at 5 slices.
+            final sortedIds = breakdown.keys.toList()
+              ..sort((a, b) =>
+                  (breakdown[b] ?? 0).compareTo(breakdown[a] ?? 0));
+            final donutIds =
+                sortedIds.take(5).toList(); // at most 5 slices
+
+            // Colour palette for slices (cycles if more than 5).
+            final palette = [
               cs.primary,
               ext.income,
               ext.warning,
               ext.textSecondary,
+              ext.expense,
             ];
+            Color colorFor(int i) => palette[i % palette.length];
 
             final monthLabel =
                 '${_monthAbbr(state.selectedMonth)} ${state.selectedYear}';
@@ -257,7 +281,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               i++)
                                             PieChartSectionData(
                                               value: percent[donutIds[i]] ?? 0,
-                                              color: donutColors[i],
+                                              color: colorFor(i),
                                               title: '',
                                               radius: 36,
                                             ),
@@ -304,7 +328,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 .findCategory(donutIds[i])
                                                 ?.name ??
                                             donutIds[i],
-                                        color: donutColors[i],
+                                        color: colorFor(i),
                                         amount: breakdown[donutIds[i]] ?? 0,
                                         pct: percent[donutIds[i]] ?? 0,
                                         sym: sym,
