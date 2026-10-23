@@ -85,6 +85,60 @@ class ProfileScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                  const SizedBox(height: kSp12),
+
+                  // ── "Member since" pill ───────────────────────────
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: kSp12, vertical: kSp6),
+                      decoration: BoxDecoration(
+                        color: ext.tint,
+                        borderRadius: BorderRadius.circular(kRadiusButton),
+                      ),
+                      child: Text(
+                        'Member since '
+                        '${DateFormat('MMM yyyy').format(profile.joinedDate)}',
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: kSp16),
+
+                  // ── "Your journey" stats row ───────────────────────
+                  AppCard(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _JourneyStat(
+                          value: '${state.totalTransactionCount}',
+                          label: 'Transactions',
+                          ext: ext,
+                          cs: cs,
+                          tt: tt,
+                        ),
+                        Container(width: 1, height: 40, color: ext.divider),
+                        _JourneyStat(
+                          value: '${state.usedCategoryCount}',
+                          label: 'Categories',
+                          ext: ext,
+                          cs: cs,
+                          tt: tt,
+                        ),
+                        Container(width: 1, height: 40, color: ext.divider),
+                        _JourneyStat(
+                          value: '${state.daysSinceJoining}',
+                          label: 'Days tracked',
+                          ext: ext,
+                          cs: cs,
+                          tt: tt,
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: kSp16),
 
                   // ── "MAKE IT YOURS" caption ───────────────────────────────
@@ -480,5 +534,49 @@ class _RowDivider extends StatelessWidget {
         endIndent: kSp16,
         color: ext.divider,
       );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Journey stat cell  (used in the "Your journey" row)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _JourneyStat extends StatelessWidget {
+  const _JourneyStat({
+    required this.value,
+    required this.label,
+    required this.ext,
+    required this.cs,
+    required this.tt,
+  });
+  final String value;
+  final String label;
+  final AppThemeExt ext;
+  final ColorScheme cs;
+  final TextTheme tt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: tt.titleMedium?.copyWith(
+            color: cs.primary,
+            fontWeight: FontWeight.w800,
+            fontSize: 22,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: tt.bodySmall?.copyWith(
+            color: ext.textSecondary,
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
 }
 

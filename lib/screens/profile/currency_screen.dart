@@ -1,9 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
+import '../../repositories/user_repository.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Currency data
@@ -144,9 +146,25 @@ class _CurrencyScreenState extends State<CurrencyScreen> {
                             currency: visible[i],
                             isSelected:
                                 visible[i].code == selected,
-                            onTap: () => context
-                                .read<AppState>()
-                                .setCurrency(visible[i].code),
+                            onTap: () async {
+                              // Optimistic local update.
+                              context
+                                  .read<AppState>()
+                                  .setCurrency(visible[i].code);
+                              // Persist to Firestore.
+                              final uid =
+                                  FirebaseAuth.instance.currentUser?.uid;
+                              if (uid != null) {
+                                try {
+                                  await context
+                                      .read<UserRepository>()
+                                      .updateCurrency(uid, visible[i].code);
+                                } catch (_) {
+                                  // Firestore error — symbol already updated
+                                  // locally; stream will re-sync later.
+                                }
+                              }
+                            },
                             ext: ext,
                             cs: cs,
                             tt: tt,

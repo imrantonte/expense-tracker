@@ -66,7 +66,8 @@ class TransactionFilter {
 
 /// Central application state, provided at the widget-tree root via Provider.
 ///
-/// All data is in-memory — no Firebase / network calls.
+/// Profile data is synced from Firestore via [UserRepository.profileStream].
+/// All other data is currently in-memory (mock).
 ///
 /// ```dart
 /// // Subscribe to rebuilds:
@@ -133,6 +134,19 @@ class AppState extends ChangeNotifier {
   /// Currency symbol derived from [profile.currencyCode].
   String get currencySymbol =>
       _kCurrencySymbols[_profile.currencyCode] ?? _profile.currencyCode;
+
+  /// Total number of transactions across all months (for "Your journey" stats).
+  int get totalTransactionCount => _transactions.length;
+
+  /// Number of unique categories used across all transactions.
+  int get usedCategoryCount =>
+      _transactions.map((t) => t.categoryId).toSet().length;
+
+  /// Days since the user joined, based on the Firestore joinedAt date.
+  int get daysSinceJoining {
+    final joined = _profile.joinedDate;
+    return DateTime.now().difference(joined).inDays.clamp(0, 99999);
+  }
 
   // ── Budget ─────────────────────────────────────────────────────────────────
 
@@ -285,6 +299,15 @@ class AppState extends ChangeNotifier {
 
   /// Replaces the user profile.
   void updateProfile(UserProfile updated) {
+    _profile = updated;
+    notifyListeners();
+  }
+
+  /// Called by [AuthGate] (or a stream listener) when Firestore emits a new
+  /// profile snapshot. This is the single source of truth for profile data.
+  ///
+  /// Identical to [updateProfile] but named distinctly so call-sites are clear.
+  void applyProfileSnapshot(UserProfile updated) {
     _profile = updated;
     notifyListeners();
   }

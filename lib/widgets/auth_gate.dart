@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -21,8 +23,8 @@ import '../widgets/app_bottom_nav.dart';
 /// Placed after the splash screen.
 ///
 /// Listens to [AuthService.authStateChanges]:
-/// - Signed in  → loads the Firestore profile into [AppState], then shows
-///                [AppShell].
+/// - Signed in  → subscribes to the Firestore profile stream, hydrates
+///                [AppState], then shows [AppShell].
 /// - Signed out → checks whether onboarding was already seen (SharedPrefs):
 ///                seen → [LoginScreen]; not seen → [OnboardingScreen].
 class AuthGate extends StatelessWidget {
@@ -45,7 +47,7 @@ class AuthGate extends StatelessWidget {
         final user = snapshot.data;
 
         if (user != null) {
-          // Signed in — hydrate AppState profile and show the main shell.
+          // Signed in — subscribe to profile stream and show the main shell.
           return _AuthenticatedShell(user: user);
         }
 
@@ -60,7 +62,8 @@ class AuthGate extends StatelessWidget {
 // _AuthenticatedShell
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Loads the Firestore user profile into [AppState], then renders [AppShell].
+/// Subscribes to the Firestore profile stream, pushes every snapshot into
+/// [AppState], then renders [AppShell].
 class _AuthenticatedShell extends StatefulWidget {
   const _AuthenticatedShell({required this.user});
   final User user;
@@ -71,35 +74,49 @@ class _AuthenticatedShell extends StatefulWidget {
 
 class _AuthenticatedShellState extends State<_AuthenticatedShell> {
   bool _loaded = false;
+  StreamSubscription<dynamic>? _profileSub;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _subscribeToProfile();
   }
 
-  Future<void> _loadProfile() async {
-    try {
-      final repo = context.read<UserRepository>();
-      final appState = context.read<AppState>();
-      final profile = await repo.fetchProfile(widget.user.uid);
-      if (!mounted) return;
-      if (profile != null) {
-        appState.updateProfile(profile);
-      } else {
-        // Firestore doc missing — fall back to Firebase Auth display name.
-        final displayName =
-            widget.user.displayName ?? widget.user.email ?? 'User';
-        final email = widget.user.email ?? '';
-        appState.updateProfile(
-          appState.profile.copyWith(name: displayName, email: email),
-        );
-      }
-    } catch (_) {
-      // Profile load failed — continue with mock/existing data.
-    } finally {
-      if (mounted) setState(() => _loaded = true);
-    }
+  void _subscribeToProfile() {
+    final repo = context.read<UserRepository>();
+    final appState = context.read<AppState>();
+
+    _profileSub = repo.profileStream(widget.user.uid).listen(
+      (profile) {
+        if (!mounted) return;
+        if (profile != null) {
+          appState.applyProfileSnapshot(profile);
+        } else {
+          // Firestore doc missing — fall back to Firebase Auth display name.
+          final displayName =
+              widget.user.displayName ?? widget.user.email ?? 'User';
+          final email = widget.user.email ?? '';
+          appState.applyProfileSnapshot(
+            appState.profile.copyWith(name: displayName, email: email),
+          );
+        }
+        if (!_loaded && mounted) {
+          setState(() => _loaded = true);
+        }
+      },
+      onError: (_) {
+        // Profile stream error — show shell with existing data.
+        if (!_loaded && mounted) {
+          setState(() => _loaded = true);
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _profileSub?.cancel();
+    super.dispose();
   }
 
   @override

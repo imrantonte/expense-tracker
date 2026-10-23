@@ -95,6 +95,61 @@ class AuthService {
     }
   }
 
+  // ── Change password ────────────────────────────────────────────────────────
+
+  /// Re-authenticates with [currentPassword] then updates to [newPassword].
+  ///
+  /// Throws [AuthException] on any failure with a friendly message.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw const AuthException('No signed-in user found.');
+    }
+    try {
+      // Re-authenticate first (required by Firebase before sensitive ops).
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPassword);
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_mapCode(e.code));
+    } catch (_) {
+      throw AuthException('Could not change password. Please try again.');
+    }
+  }
+
+  // ── Delete account ─────────────────────────────────────────────────────────
+
+  /// Re-authenticates with [password], then deletes the Firebase Auth user.
+  ///
+  /// **Note**: Call [UserRepository.deleteUserData] before this to remove
+  /// Firestore data, so security rules don't block the delete after sign-out.
+  ///
+  /// Throws [AuthException] on failure.
+  Future<void> deleteAccount({required String password}) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw const AuthException('No signed-in user found.');
+    }
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: password,
+      );
+      await user.reauthenticateWithCredential(credential);
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_mapCode(e.code));
+    } catch (_) {
+      throw AuthException('Could not delete account. Please try again.');
+    }
+  }
+
   // ── Sign-out ───────────────────────────────────────────────────────────────
 
   /// Signs the current user out.
@@ -111,9 +166,8 @@ class AuthService {
       case 'user-not-found':
         return 'No account found for that email.';
       case 'wrong-password':
-        return 'Incorrect password. Please try again.';
       case 'invalid-credential':
-        return 'Email or password is incorrect.';
+        return 'Incorrect password. Please try again.';
       case 'email-already-in-use':
         return 'An account with this email already exists.';
       case 'weak-password':
@@ -122,6 +176,8 @@ class AuthService {
         return 'No internet connection. Please check your network.';
       case 'too-many-requests':
         return 'Too many attempts. Please wait a moment and try again.';
+      case 'requires-recent-login':
+        return 'Please log out and log back in, then try again.';
       default:
         return 'Something went wrong. Please try again.';
     }
