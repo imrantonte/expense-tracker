@@ -1,13 +1,17 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
 import '../../data/app_state.dart';
 import '../../screens/budget/set_budget_screen.dart';
+import '../../services/report_calculations.dart';
+import '../../services/report_pdf_service.dart';
 import '../../widgets/app_card.dart';
+import '../../models/transaction_item.dart';
 import '../../widgets/month_picker_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -201,7 +205,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: kSp12)),
 
-                // ── Summary row ────────────────────────────────────────
+                // ── Export PDF pill ────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: kSp16),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openExportSheet(ctx, state),
+                        icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+                        label: const Text('Export PDF'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: cs.primary,
+                          side: BorderSide(color: cs.primary),
+                          minimumSize: const Size(0, 36),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: kSp14, vertical: kSp6),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(kRadiusButton),
+                          ),
+                          textStyle: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: kSp12)),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding:
@@ -336,95 +367,80 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   tt: tt,
                                   cs: cs,
                                 )
-                              : Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.center,
-                                  children: [
-                                    // Donut
-                                    SizedBox(
-                                      width: 140,
-                                      height: 140,
-                                      child: Stack(
-                                        alignment: Alignment.center,
-                                        children: [
-                                          PieChart(
-                                            PieChartData(
-                                              sections: [
-                                                for (int i = 0;
-                                                    i < donutIds.length;
-                                                    i++)
-                                                  PieChartSectionData(
-                                                    value: percent[
-                                                            donutIds[i]] ??
-                                                        0,
-                                                    color: colorFor(i),
-                                                    title: '',
-                                                    radius: 36,
-                                                  ),
-                                              ],
-                                              centerSpaceRadius: 50,
-                                              sectionsSpace: 2,
-                                              startDegreeOffset: -90,
-                                            ),
-                                          ),
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
+                              : LayoutBuilder(
+                                  builder: (_, constraints) {
+                                    final donutSize = (constraints.maxWidth * 0.45).clamp(0.0, 130.0);
+                                    final innerRadius = donutSize * 0.36;
+                                    final ringWidth   = donutSize * 0.26;
+                                    return Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
+                                        SizedBox(
+                                          width: donutSize,
+                                          height: donutSize,
+                                          child: Stack(
+                                            alignment: Alignment.center,
                                             children: [
-                                              Text(
-                                                '$sym${nf.format(summary.spent.toInt())}',
-                                                style: tt.titleSmall
-                                                    ?.copyWith(
-                                                  color: cs.primary,
-                                                  fontWeight:
-                                                      FontWeight.w800,
-                                                  fontSize: 15,
+                                              PieChart(
+                                                PieChartData(
+                                                  sections: [
+                                                    for (int i = 0; i < donutIds.length; i++)
+                                                      PieChartSectionData(
+                                                        value: percent[donutIds[i]] ?? 0,
+                                                        color: colorFor(i),
+                                                        title: '',
+                                                        radius: ringWidth,
+                                                      ),
+                                                  ],
+                                                  centerSpaceRadius: innerRadius,
+                                                  sectionsSpace: 2,
+                                                  startDegreeOffset: -90,
                                                 ),
                                               ),
-                                              Text(
-                                                'spent',
-                                                style: tt.bodySmall
-                                                    ?.copyWith(
-                                                        color:
-                                                            ext.textSecondary),
+                                              Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    '$sym${nf.format(summary.spent.toInt())}',
+                                                    style: tt.titleSmall?.copyWith(
+                                                      color: cs.primary,
+                                                      fontWeight: FontWeight.w800,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    'spent',
+                                                    style: tt.bodySmall?.copyWith(color: ext.textSecondary),
+                                                  ),
+                                                ],
                                               ),
                                             ],
                                           ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: kSp16),
-                                    // Legend
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          for (int i = 0;
-                                              i < donutIds.length;
-                                              i++) ...[
-                                            if (i > 0)
-                                              const SizedBox(height: kSp10),
-                                            _DonutLegendRow(
-                                              name: state
-                                                      .findCategory(
-                                                          donutIds[i])
-                                                      ?.name ??
-                                                  donutIds[i],
-                                              color: colorFor(i),
-                                              amount: breakdown[
-                                                      donutIds[i]] ??
-                                                  0,
-                                              pct: percent[donutIds[i]] ??
-                                                  0,
-                                              sym: sym,
-                                              nf: nf,
-                                              ext: ext,
-                                              tt: tt,
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                        ),
+                                        const SizedBox(width: kSp12),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              for (int i = 0; i < donutIds.length; i++) ...[
+                                                if (i > 0) const SizedBox(height: kSp8),
+                                                _DonutLegendRow(
+                                                  name: state.findCategory(donutIds[i])?.name ?? donutIds[i],
+                                                  color: colorFor(i),
+                                                  amount: breakdown[donutIds[i]] ?? 0,
+                                                  pct: percent[donutIds[i]] ?? 0,
+                                                  sym: sym,
+                                                  nf: nf,
+                                                  ext: ext,
+                                                  tt: tt,
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
                         ],
                       ),
@@ -582,6 +598,32 @@ class _ReportsScreenState extends State<ReportsScreen> {
         next.year != state.selectedYear) {
       state.setSelectedMonth(next.month, next.year);
     }
+  }
+
+  // ── Export PDF sheet ────────────────────────────────────────────────────────
+
+  void _openExportSheet(BuildContext context, AppState state) {
+    final theme = Theme.of(context);
+    final ext = theme.extension<AppThemeExt>() ?? AppThemeExt.dark;
+    final cs  = theme.colorScheme;
+    final tt  = theme.textTheme;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: ext.cardBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(kRadiusSheet)),
+      ),
+      builder: (_) => _ExportSheet(
+        initialPeriod: _period,
+        state: state,
+        ext: ext,
+        cs: cs,
+        tt: tt,
+      ),
+    );
   }
 
   // ── Bar chart builder ───────────────────────────────────────────────────────
@@ -1131,6 +1173,372 @@ class _BudgetBar extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export PDF bottom sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ExportSheet extends StatefulWidget {
+  const _ExportSheet({
+    required this.initialPeriod,
+    required this.state,
+    required this.ext,
+    required this.cs,
+    required this.tt,
+  });
+  final String initialPeriod;
+  final AppState state;
+  final AppThemeExt ext;
+  final ColorScheme cs;
+  final TextTheme tt;
+
+  @override
+  State<_ExportSheet> createState() => _ExportSheetState();
+}
+
+class _ExportSheetState extends State<_ExportSheet> {
+  late String _period; // 'Day' | 'Week' | 'Month' | 'Custom'
+
+  late DateTime _selectedDate;
+  DateTimeRange? _customRange;
+
+  bool _includeBudget = true;
+  bool _includeCategory = true;
+  bool _includeIncExp = true;
+  bool _includeAllTxns = true;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = widget.state.selectedDay;
+    // Map screen period to sheet period chip.
+    switch (widget.initialPeriod) {
+      case 'Daily':
+        _period = 'Day';
+        break;
+      case 'Weekly':
+        _period = 'Week';
+        break;
+      default:
+        _period = 'Month';
+    }
+  }
+
+  // ── Derived range ──────────────────────────────────────────────────────────
+
+  ({DateTime start, DateTime end}) get _range {
+    final d = _selectedDate;
+    switch (_period) {
+      case 'Day':
+        return (start: DateTime(d.year, d.month, d.day), end: DateTime(d.year, d.month, d.day));
+      case 'Week':
+        final mon = d.subtract(Duration(days: d.weekday - 1));
+        final sun = mon.add(const Duration(days: 6));
+        return (start: DateTime(mon.year, mon.month, mon.day), end: DateTime(sun.year, sun.month, sun.day));
+      case 'Month':
+        final s = widget.state;
+        final first = DateTime(s.selectedYear, s.selectedMonth, 1);
+        final last  = DateTime(s.selectedYear, s.selectedMonth + 1, 0);
+        return (start: first, end: last);
+      default: // Custom
+        if (_customRange != null) {
+          return (start: _customRange!.start, end: _customRange!.end);
+        }
+        return (start: DateTime(d.year, d.month, 1), end: DateTime(d.year, d.month + 1, 0));
+    }
+  }
+
+  String get _rangeLabel {
+    final r = _range;
+    final df = DateFormat('d MMM');
+    final dfY = DateFormat('d MMM yyyy');
+    if (r.start.year == r.end.year && r.start.month == r.end.month && r.start.day == r.end.day) {
+      return dfY.format(r.start);
+    }
+    if (r.start.year == r.end.year) {
+      return '${df.format(r.start)} – ${dfY.format(r.end)}';
+    }
+    return '${dfY.format(r.start)} – ${dfY.format(r.end)}';
+  }
+
+  // ── Pickers ────────────────────────────────────────────────────────────────
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: _customRange,
+    );
+    if (picked != null) setState(() => _customRange = picked);
+  }
+
+  // ── Generate ───────────────────────────────────────────────────────────────
+
+  Future<void> _generate() async {
+    final r = _range;
+    final state = widget.state;
+
+    final allTxns = state.transactions.isNotEmpty
+        ? [...state.transactions]
+        : <TransactionItem>[];
+
+    // Filter to range
+    final inRange = ReportCalculations.filterByRange(allTxns, r.start, r.end);
+    if (inRange.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nothing to export for this period')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final data = ReportCalculations.compute(
+        allTransactions: allTxns,
+        rangeStart: r.start,
+        rangeEnd: r.end,
+        budget: state.budget,
+        categoryName: (id) => state.findCategory(id)?.name ?? id,
+      );
+
+      final currencySymbol = state.currencySymbol;
+      final periodLabel = _period;
+      final rangeLabel = _rangeLabel;
+
+      final bytes = await ReportPdfService.build(
+        data: data,
+        currencySymbol: currencySymbol,
+        periodLabel: periodLabel,
+        rangeLabel: rangeLabel,
+        userName: state.profile.name,
+        userEmail: state.profile.email,
+        includeBudget: _includeBudget,
+        includeCategoryBreakdown: _includeCategory,
+        includeIncomeExpenses: _includeIncExp,
+        includeAllTransactions: _includeAllTxns,
+      );
+
+      // Build file name: WhereDidItGo_Report_2026-11_Monthly.pdf
+      final monthStr = DateFormat('yyyy-MM').format(r.start);
+      final fileName = 'WhereDidItGo_Report_${monthStr}_$periodLabel.pdf';
+
+      if (mounted) Navigator.pop(context);
+
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: fileName,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final ext = widget.ext;
+    final cs  = widget.cs;
+    final tt  = widget.tt;
+
+    const periods = ['Day', 'Week', 'Month', 'Custom'];
+    final needDatePicker = _period == 'Day' || _period == 'Week';
+    final needRangePicker = _period == 'Custom';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: ext.cardBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(kRadiusSheet)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(kSp24, kSp12, kSp24, kSp24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: ext.textSecondary.withAlpha(80),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: kSp20),
+
+              // Title
+              Text('Export report',
+                  style: tt.titleLarge?.copyWith(
+                    color: ext.textPrimary, fontWeight: FontWeight.w700, fontSize: 22)),
+              const SizedBox(height: kSp4),
+              Text('Create a PDF you can save or share.',
+                  style: tt.bodyMedium?.copyWith(color: ext.textSecondary)),
+              const SizedBox(height: kSp20),
+
+              // Period chips
+              Text('Period', style: tt.labelMedium?.copyWith(color: ext.textSecondary)),
+              const SizedBox(height: kSp8),
+              Wrap(
+                spacing: kSp8,
+                children: periods.map((p) {
+                  final sel = p == _period;
+                  return GestureDetector(
+                    onTap: () => setState(() => _period = p),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: kSp14, vertical: kSp8),
+                      decoration: BoxDecoration(
+                        color: sel ? cs.primary : Colors.transparent,
+                        border: Border.all(color: sel ? cs.primary : ext.cardBorder),
+                        borderRadius: BorderRadius.circular(kRadiusButton),
+                      ),
+                      child: Text(p,
+                          style: tt.bodyMedium?.copyWith(
+                            color: sel ? Colors.white : ext.textPrimary,
+                            fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                          )),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: kSp12),
+
+              // Date picker trigger
+              if (needDatePicker)
+                GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: kSp14, vertical: kSp10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: ext.cardBorder),
+                      borderRadius: BorderRadius.circular(kRadiusField),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_today_outlined, size: 16, color: cs.primary),
+                        const SizedBox(width: kSp8),
+                        Text(_rangeLabel, style: tt.bodyMedium?.copyWith(color: ext.textPrimary)),
+                      ],
+                    ),
+                  ),
+                ),
+              if (needRangePicker)
+                GestureDetector(
+                  onTap: _pickDateRange,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: kSp14, vertical: kSp10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: ext.cardBorder),
+                      borderRadius: BorderRadius.circular(kRadiusField),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.date_range_outlined, size: 16, color: cs.primary),
+                        const SizedBox(width: kSp8),
+                        Expanded(child: Text(_rangeLabel, style: tt.bodyMedium?.copyWith(color: ext.textPrimary))),
+                      ],
+                    ),
+                  ),
+                ),
+              if (!needDatePicker && !needRangePicker)
+                Text(_rangeLabel, style: tt.bodySmall?.copyWith(color: ext.textSecondary)),
+              const SizedBox(height: kSp16),
+
+              // Include switches
+              Text('Include', style: tt.labelMedium?.copyWith(color: ext.textSecondary)),
+              const SizedBox(height: kSp8),
+              _SwitchRow(label: 'Budget overview',           value: _includeBudget,  ext: ext, tt: tt, cs: cs, onChanged: (v) => setState(() => _includeBudget = v)),
+              _SwitchRow(label: 'Category breakdown',        value: _includeCategory, ext: ext, tt: tt, cs: cs, onChanged: (v) => setState(() => _includeCategory = v)),
+              _SwitchRow(label: 'Income vs Expenses',        value: _includeIncExp,  ext: ext, tt: tt, cs: cs, onChanged: (v) => setState(() => _includeIncExp = v)),
+              _SwitchRow(label: 'All transactions',          value: _includeAllTxns, ext: ext, tt: tt, cs: cs, onChanged: (v) => setState(() => _includeAllTxns = v)),
+              const SizedBox(height: kSp24),
+
+              // Generate button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading ? null : _generate,
+                  icon: _loading
+                      ? SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
+                        )
+                      : const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  label: Text(_loading ? 'Generating…' : 'Generate PDF'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: cs.primary,
+                    minimumSize: const Size(0, kButtonHeight),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadiusButton)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Switch row widget
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.ext,
+    required this.tt,
+    required this.cs,
+  });
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final AppThemeExt ext;
+  final TextTheme tt;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Text(label, style: tt.bodyMedium?.copyWith(color: ext.textPrimary))),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: cs.primary,
+        ),
+      ],
     );
   }
 }
