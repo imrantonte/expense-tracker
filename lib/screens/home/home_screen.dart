@@ -15,6 +15,7 @@ import '../../screens/transaction_detail/transaction_detail_screen.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/month_picker_sheet.dart';
 import '../../widgets/transaction_tile.dart';
+import '../../widgets/user_avatar.dart';
 
 // ── Number formatter (comma-separated, no decimals for whole numbers) ─────────
 final _nf = NumberFormat('#,##0');
@@ -95,6 +96,15 @@ class _HomeHeader extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // ── User avatar ────────────────────────────────────────────────────
+        UserAvatar(
+          radius: 20,
+          photoBase64: state.profile.photoBase64,
+          avatarId: state.profile.avatarId,
+          showDot: false,
+        ),
+        const SizedBox(width: kSp12),
+
         // ── Greeting column ────────────────────────────────────────────────
         Expanded(
           child: Column(
@@ -125,6 +135,7 @@ class _HomeHeader extends StatelessWidget {
               context,
               initialMonth: state.selectedMonth,
               initialYear: state.selectedYear,
+              joinedDate: state.profile.joinedDate,
             );
             if (result != null && context.mounted) {
               context.read<AppState>().setSelectedMonth(
@@ -380,21 +391,25 @@ class _BudgetCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: kSp12),
-            FilledButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SetBudgetScreen()),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: cs.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(kRadiusButton),
+            SizedBox(
+              width: 110,
+              child: FilledButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SetBudgetScreen()),
                 ),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: kSp14, vertical: kSp8),
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(kRadiusButton),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: kSp14, vertical: kSp8),
+                ),
+                child: const Text('Set a budget',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
               ),
-              child: const Text('Set a budget',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             ),
           ],
         ),

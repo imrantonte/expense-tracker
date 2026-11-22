@@ -15,4 +15,5 @@ export 'secondary_button.dart';
 export 'section_header.dart';
 export 'summary_card.dart';
 export 'transaction_tile.dart';
+export 'user_avatar.dart';
 export 'wallet_logo_badge.dart';

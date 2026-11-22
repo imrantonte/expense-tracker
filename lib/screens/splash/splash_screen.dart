@@ -132,13 +132,20 @@ class _SplashScreenState extends State<SplashScreen>
       final yAnim = Tween<double>(begin: 0, end: -96).animate(
         CurvedAnimation(
           parent: _coinCtrl,
-          curve: Interval(start, start + 0.65, curve: Curves.easeOut),
+          curve: Interval(
+            start.clamp(0.0, 1.0),
+            (start + 0.65).clamp(0.0, 1.0),
+            curve: Curves.easeOut,
+          ),
         ),
       );
       final oAnim = Tween<double>(begin: 0.85, end: 0).animate(
         CurvedAnimation(
           parent: _coinCtrl,
-          curve: Interval(start + 0.24, start + 0.78),
+          curve: Interval(
+            (start + 0.24).clamp(0.0, 1.0),
+            (start + 0.78).clamp(0.0, 1.0),
+          ),
         ),
       );
 

@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
@@ -9,6 +12,7 @@ import '../../repositories/user_repository.dart';
 import '../../screens/auth/register_screen.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/user_avatar.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EditProfileScreen  (follows the Figma: avatar card + Name field + Save)
@@ -24,6 +28,7 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _nameCtrl;
   bool _saving = false;
+  bool _photoLoading = false;
 
   @override
   void initState() {
@@ -63,6 +68,106 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) _showError('Could not save. Please try again.');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ── Photo bottom sheet ────────────────────────────────────────────────────
+
+  void _openPhotoSheet() {
+    final profile = context.read<AppState>().profile;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _PhotoBottomSheet(
+        currentAvatarId: profile.avatarId,
+        hasPhoto:
+            (profile.photoBase64 != null && profile.photoBase64!.isNotEmpty) ||
+                (profile.avatarId != null && profile.avatarId!.isNotEmpty),
+        onTakePhoto: () {
+          Navigator.pop(ctx);
+          _pickImage(ImageSource.camera);
+        },
+        onChooseGallery: () {
+          Navigator.pop(ctx);
+          _pickImage(ImageSource.gallery);
+        },
+        onPickAvatar: (String id) {
+          Navigator.pop(ctx);
+          _saveAvatarId(id);
+        },
+        onRemove: () {
+          Navigator.pop(ctx);
+          _removePhoto();
+        },
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final repo = context.read<UserRepository>(); // capture before async gap
+
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(
+        source: source,
+        maxWidth: 256,
+        maxHeight: 256,
+        imageQuality: 70,
+      );
+      if (file == null) return; // user cancelled
+
+      setState(() => _photoLoading = true);
+
+      final bytes = await file.readAsBytes();
+      // Refuse images larger than 200 KB after compression.
+      if (bytes.length > 200 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(const SnackBar(
+              content: Text(
+                'Photo is too large (max 200 KB). '
+                'Please choose a smaller image.',
+              ),
+            ));
+        }
+        return;
+      }
+
+      final base64Str = base64Encode(bytes);
+      await repo.updatePhotoBase64(uid, base64Str);
+    } catch (_) {
+      if (mounted) _showError('Could not upload photo. Please try again.');
+    } finally {
+      if (mounted) setState(() => _photoLoading = false);
+    }
+  }
+
+  Future<void> _saveAvatarId(String id) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    setState(() => _photoLoading = true);
+    try {
+      await context.read<UserRepository>().updateAvatarId(uid, id);
+    } catch (_) {
+      if (mounted) _showError('Could not save avatar. Please try again.');
+    } finally {
+      if (mounted) setState(() => _photoLoading = false);
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    setState(() => _photoLoading = true);
+    try {
+      await context.read<UserRepository>().removePhoto(uid);
+    } catch (_) {
+      if (mounted) _showError('Could not remove photo. Please try again.');
+    } finally {
+      if (mounted) setState(() => _photoLoading = false);
     }
   }
 
@@ -203,30 +308,63 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       AppCard(
                         child: Row(
                           children: [
-                            Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                CircleAvatar(
-                                  radius: 30,
-                                  backgroundColor: ext.tint,
-                                  child: Icon(Icons.person_rounded,
-                                      color: cs.primary, size: 34),
-                                ),
-                                Positioned(
-                                  bottom: 2,
-                                  right: 2,
-                                  child: Container(
-                                    width: 11,
-                                    height: 11,
-                                    decoration: BoxDecoration(
-                                      color: ext.warning,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: ext.cardBackground, width: 2),
+                            // Avatar with camera badge + loading overlay
+                            GestureDetector(
+                              onTap: _openPhotoSheet,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  UserAvatar(
+                                    radius: 30,
+                                    photoBase64: profile.photoBase64,
+                                    avatarId: profile.avatarId,
+                                    showDot: true,
+                                    onTap: null, // handled by GestureDetector
+                                  ),
+                                  // Camera badge
+                                  Positioned(
+                                    bottom: -2,
+                                    right: -2,
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: cs.primary,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                            color: ext.cardBackground,
+                                            width: 1.5),
+                                      ),
+                                      child: Icon(
+                                        Icons.camera_alt_rounded,
+                                        color: Colors.white,
+                                        size: 11,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  // Loading overlay
+                                  if (_photoLoading)
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.black38,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Center(
+                                          child: SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child:
+                                                CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                             const SizedBox(width: kSp16),
                             Expanded(
@@ -248,6 +386,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     profile.email,
                                     style: tt.bodySmall
                                         ?.copyWith(color: ext.textSecondary),
+                                  ),
+                                  const SizedBox(height: kSp4),
+                                  // "Change photo" link
+                                  GestureDetector(
+                                    onTap: _openPhotoSheet,
+                                    child: Text(
+                                      'Change photo',
+                                      style: tt.bodySmall?.copyWith(
+                                        color: cs.primary,
+                                        fontWeight: FontWeight.w600,
+                                        decoration:
+                                            TextDecoration.underline,
+                                        decorationColor: cs.primary,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -416,6 +569,204 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Photo options bottom sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PhotoBottomSheet extends StatefulWidget {
+  const _PhotoBottomSheet({
+    required this.onTakePhoto,
+    required this.onChooseGallery,
+    required this.onPickAvatar,
+    required this.onRemove,
+    required this.hasPhoto,
+    this.currentAvatarId,
+  });
+
+  final VoidCallback onTakePhoto;
+  final VoidCallback onChooseGallery;
+  final void Function(String avatarId) onPickAvatar;
+  final VoidCallback onRemove;
+  final bool hasPhoto;
+  final String? currentAvatarId;
+
+  @override
+  State<_PhotoBottomSheet> createState() => _PhotoBottomSheetState();
+}
+
+class _PhotoBottomSheetState extends State<_PhotoBottomSheet> {
+  bool _showAvatarGrid = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ext = Theme.of(context).extension<AppThemeExt>()!;
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ext.divider,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Profile photo',
+                  style: tt.titleMedium?.copyWith(
+                    color: ext.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+              Divider(height: 1, color: ext.divider),
+
+              // ── Options ──────────────────────────────────────────────────
+              _SheetOption(
+                icon: Icons.camera_alt_outlined,
+                label: 'Take photo',
+                onTap: widget.onTakePhoto,
+                ext: ext,
+                cs: cs,
+                tt: tt,
+              ),
+              _SheetOption(
+                icon: Icons.photo_library_outlined,
+                label: 'Choose from gallery',
+                onTap: widget.onChooseGallery,
+                ext: ext,
+                cs: cs,
+                tt: tt,
+              ),
+              _SheetOption(
+                icon: Icons.face_rounded,
+                label: 'Pick an avatar',
+                onTap: () => setState(() => _showAvatarGrid = !_showAvatarGrid),
+                ext: ext,
+                cs: cs,
+                tt: tt,
+                trailing: AnimatedRotation(
+                  turns: _showAvatarGrid ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(Icons.expand_more_rounded,
+                      color: ext.textSecondary, size: 20),
+                ),
+              ),
+
+              // Avatar grid (animated)
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 220),
+                crossFadeState: _showAvatarGrid
+                    ? CrossFadeState.showSecond
+                    : CrossFadeState.showFirst,
+                firstChild: const SizedBox.shrink(),
+                secondChild: AvatarPickerGrid(
+                  selectedId: widget.currentAvatarId,
+                  onSelected: widget.onPickAvatar,
+                ),
+              ),
+
+              if (widget.hasPhoto) ...[
+                Divider(height: 1, color: ext.divider),
+                _SheetOption(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Remove photo',
+                  onTap: widget.onRemove,
+                  ext: ext,
+                  cs: cs,
+                  tt: tt,
+                  isDestructive: true,
+                ),
+              ],
+
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetOption extends StatelessWidget {
+  const _SheetOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.ext,
+    required this.cs,
+    required this.tt,
+    this.trailing,
+    this.isDestructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final AppThemeExt ext;
+  final ColorScheme cs;
+  final TextTheme tt;
+  final Widget? trailing;
+  final bool isDestructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDestructive ? ext.expense : ext.textPrimary;
+    final iconColor = isDestructive ? ext.expense : cs.primary;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: isDestructive
+                    ? ext.expense.withAlpha(22)
+                    : ext.tint,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: tt.bodyMedium?.copyWith(color: color),
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
       ),
     );
   }

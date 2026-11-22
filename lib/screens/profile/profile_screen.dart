@@ -16,6 +16,7 @@ import '../../screens/profile/currency_screen.dart';
 import '../../screens/profile/edit_profile_screen.dart';
 import '../../screens/profile/manage_categories_screen.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/user_avatar.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ProfileScreen  (4th tab)
@@ -59,7 +60,12 @@ class ProfileScreen extends StatelessWidget {
                   AppCard(
                     child: Row(
                       children: [
-                        _Avatar(ext: ext, cs: cs),
+                        UserAvatar(
+                          radius: 30,
+                          photoBase64: profile.photoBase64,
+                          avatarId: profile.avatarId,
+                          showDot: true,
+                        ),
                         const SizedBox(width: kSp16),
                         Expanded(
                           child: Column(
@@ -358,43 +364,6 @@ class ProfileScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Circular avatar with amber dot
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.ext, required this.cs});
-  final AppThemeExt ext;
-  final ColorScheme cs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        CircleAvatar(
-          radius: 30,
-          backgroundColor: ext.tint,
-          child: Icon(Icons.person_rounded, color: cs.primary, size: 34),
-        ),
-        Positioned(
-          bottom: 2,
-          right: 2,
-          child: Container(
-            width: 11,
-            height: 11,
-            decoration: BoxDecoration(
-              color: ext.warning,
-              shape: BoxShape.circle,
-              border: Border.all(color: ext.cardBackground, width: 2),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Settings row (icon badge + label + optional value + chevron)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -501,9 +470,12 @@ class _ThemeModeRow extends StatelessWidget {
             child: Icon(icon, color: cs.primary, size: 20),
           ),
           const SizedBox(width: kSp12),
-          Text(label,
-              style: tt.bodyMedium?.copyWith(color: ext.textPrimary)),
-          const Spacer(),
+          Expanded(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: tt.bodyMedium?.copyWith(color: ext.textPrimary)),
+          ),
+          const SizedBox(width: kSp8),
           // Segmented picker
           Container(
             decoration: BoxDecoration(

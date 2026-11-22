@@ -519,26 +519,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: kSp12),
-                                FilledButton(
-                                  onPressed: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            const SetBudgetScreen()),
-                                  ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: cs.primary,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          kRadiusButton),
+                                SizedBox(
+                                  width: 110,
+                                  child: FilledButton(
+                                    onPressed: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const SetBudgetScreen()),
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: kSp14, vertical: kSp8),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: cs.primary,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                            kRadiusButton),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: kSp14, vertical: kSp8),
+                                    ),
+                                    child: const Text('Set a budget',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13)),
                                   ),
-                                  child: const Text('Set a budget',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 13)),
                                 ),
                               ],
                             ),
@@ -563,6 +566,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       context,
       initialMonth: state.selectedMonth,
       initialYear: state.selectedYear,
+      joinedDate: state.profile.joinedDate,
     );
     if (result != null && context.mounted) {
       context.read<AppState>().setSelectedMonth(result.month, result.year);

@@ -24,14 +24,7 @@ class UserRepository {
     return _userDoc(uid).snapshots().map((doc) {
       if (!doc.exists) return null;
       final data = doc.data()!;
-      return UserProfile(
-        name: (data['name'] as String?) ?? '',
-        email: (data['email'] as String?) ?? '',
-        currencyCode: (data['currencyCode'] as String?) ?? 'BDT',
-        joinedDate: data['joinedAt'] is Timestamp
-            ? (data['joinedAt'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
+      return _fromData(data);
     }).handleError((_) => null);
   }
 
@@ -45,15 +38,7 @@ class UserRepository {
     try {
       final doc = await _userDoc(uid).get();
       if (!doc.exists) return null;
-      final data = doc.data()!;
-      return UserProfile(
-        name: (data['name'] as String?) ?? '',
-        email: (data['email'] as String?) ?? '',
-        currencyCode: (data['currencyCode'] as String?) ?? 'BDT',
-        joinedDate: data['joinedAt'] is Timestamp
-            ? (data['joinedAt'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
+      return _fromData(doc.data()!);
     } catch (_) {
       return null;
     }
@@ -82,6 +67,33 @@ class UserRepository {
   Future<void> updateCurrency(String uid, String currencyCode) async {
     await _userDoc(uid)
         .set({'currencyCode': currencyCode}, SetOptions(merge: true));
+  }
+
+  /// Saves a base64-encoded photo and clears avatarId.
+  Future<void> updatePhotoBase64(String uid, String base64) async {
+    await _userDoc(uid).set(
+      {'photoBase64': base64, 'avatarId': FieldValue.delete()},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Saves an avatar ID and clears photoBase64.
+  Future<void> updateAvatarId(String uid, String avatarId) async {
+    await _userDoc(uid).set(
+      {'avatarId': avatarId, 'photoBase64': FieldValue.delete()},
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Removes both photoBase64 and avatarId (reverts to default icon).
+  Future<void> removePhoto(String uid) async {
+    await _userDoc(uid).set(
+      {
+        'photoBase64': FieldValue.delete(),
+        'avatarId': FieldValue.delete(),
+      },
+      SetOptions(merge: true),
+    );
   }
 
   /// Merges arbitrary settings fields into the user document.
@@ -127,5 +139,20 @@ class UserRepository {
     } catch (_) {
       // Ignore if already gone.
     }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  static UserProfile _fromData(Map<String, dynamic> data) {
+    return UserProfile(
+      name: (data['name'] as String?) ?? '',
+      email: (data['email'] as String?) ?? '',
+      currencyCode: (data['currencyCode'] as String?) ?? 'BDT',
+      joinedDate: data['joinedAt'] is Timestamp
+          ? (data['joinedAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      photoBase64: data['photoBase64'] as String?,
+      avatarId: data['avatarId'] as String?,
+    );
   }
 }

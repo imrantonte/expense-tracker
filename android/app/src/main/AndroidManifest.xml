@@ -18,8 +18,14 @@
          because all pending AlarmManager alarms are lost on reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- ── Camera & media permissions for profile photo ──────────────────── -->
+    <!-- CAMERA: lets the user take a new photo for their profile. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- READ_MEDIA_IMAGES (API 33+): replaces READ_EXTERNAL_STORAGE for images. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
     <application
-        android:label="where_did_it_go"
+        android:label="Where Did It Go?"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
