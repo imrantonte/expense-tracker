@@ -1,17 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 /// Provides all Firebase Authentication operations for the app.
 ///
 /// All Firebase calls live here — no auth logic touches widgets.
 /// Friendly, short error messages are returned via [AuthException].
 class AuthService {
-  AuthService({FirebaseAuth? auth, FirebaseFirestore? firestore})
-      : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+  AuthService({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    GoogleSignIn? googleSignIn,
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance,
+        _googleSignIn = googleSignIn ??
+            GoogleSignIn(
+              serverClientId:
+                  '239331962352-sa70glmurk76psqa0umdoql5s095em66.apps.googleusercontent.com',
+            );
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final GoogleSignIn _googleSignIn;
 
   // ── Auth state ─────────────────────────────────────────────────────────────
 
@@ -20,6 +30,15 @@ class AuthService {
 
   /// The currently signed-in user, or `null`.
   User? get currentUser => _auth.currentUser;
+
+  /// Returns true if the current user signed in only with Google
+  /// (has no password / email provider).
+  bool get isGoogleUser {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    return user.providerData.any((p) => p.providerId == 'google.com') &&
+        !user.providerData.any((p) => p.providerId == 'password');
+  }
 
   // ── Registration ───────────────────────────────────────────────────────────
 
@@ -80,6 +99,63 @@ class AuthService {
     }
   }
 
+  // ── Google Sign-In ─────────────────────────────────────────────────────────
+
+  /// Signs in (or registers) with Google.
+  ///
+  /// Returns the [User] on success, or `null` if the user cancelled the picker.
+  /// Throws [AuthException] on any real error.
+  ///
+  /// On first sign-in, creates the Firestore user doc and seeds categories
+  /// via [onNewUser] callback — the caller (widget) supplies this so the
+  /// service stays free of CategoryRepository.
+  Future<User?> signInWithGoogle({
+    required Future<void> Function(User user) onNewUser,
+  }) async {
+    try {
+      // Show the account picker.
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null; // user dismissed the picker
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user!;
+
+      // Check if this is a brand-new Firestore user.
+      final doc =
+          await _firestore.collection('users').doc(user.uid).get();
+      if (!doc.exists) {
+        // First Google sign-in — create the user doc.
+        await _firestore.collection('users').doc(user.uid).set({
+          'name': user.displayName ?? googleUser.displayName ?? '',
+          'email': user.email ?? googleUser.email,
+          'currencyCode': 'BDT',
+          'joinedAt': FieldValue.serverTimestamp(),
+        });
+        // Seed default categories (callback provided by caller).
+        await onNewUser(user);
+      }
+
+      return user;
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_mapCode(e.code));
+    } on AuthException {
+      rethrow;
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('network') || msg.contains('socket')) {
+        throw const AuthException(
+            'No internet connection. Please check your network.');
+      }
+      throw const AuthException('Something went wrong. Please try again.');
+    }
+  }
+
   // ── Password reset ─────────────────────────────────────────────────────────
 
   /// Sends a password-reset email to [email].
@@ -125,24 +201,44 @@ class AuthService {
 
   // ── Delete account ─────────────────────────────────────────────────────────
 
-  /// Re-authenticates with [password], then deletes the Firebase Auth user.
+  /// Re-authenticates with email [password] (for password users) or
+  /// re-authenticates via Google (for Google-only users), then deletes the
+  /// Firebase Auth user.
   ///
-  /// **Note**: Call [UserRepository.deleteUserData] before this to remove
-  /// Firestore data, so security rules don't block the delete after sign-out.
+  /// **Note**: Call [UserRepository.deleteUserData] before this.
   ///
   /// Throws [AuthException] on failure.
-  Future<void> deleteAccount({required String password}) async {
+  Future<void> deleteAccount({String? password}) async {
     final user = _auth.currentUser;
-    if (user == null || user.email == null) {
+    if (user == null) {
       throw const AuthException('No signed-in user found.');
     }
     try {
-      final credential = EmailAuthProvider.credential(
-        email: user.email!,
-        password: password,
-      );
-      await user.reauthenticateWithCredential(credential);
+      if (isGoogleUser) {
+        // Re-authenticate via Google.
+        final googleUser = await _googleSignIn.signIn();
+        if (googleUser == null) {
+          throw const AuthException('Re-authentication cancelled.');
+        }
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        await user.reauthenticateWithCredential(credential);
+      } else {
+        if (password == null || user.email == null) {
+          throw const AuthException('No signed-in user found.');
+        }
+        final credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: password,
+        );
+        await user.reauthenticateWithCredential(credential);
+      }
       await user.delete();
+    } on AuthException {
+      rethrow;
     } on FirebaseAuthException catch (e) {
       throw AuthException(_mapCode(e.code));
     } catch (_) {
@@ -152,8 +248,12 @@ class AuthService {
 
   // ── Sign-out ───────────────────────────────────────────────────────────────
 
-  /// Signs the current user out.
+  /// Signs the current user out of both Google and Firebase.
   Future<void> signOut() async {
+    // signOut of GoogleSignIn is best-effort — ignore any error.
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
     await _auth.signOut();
   }
 
@@ -178,6 +278,11 @@ class AuthService {
         return 'Too many attempts. Please wait a moment and try again.';
       case 'requires-recent-login':
         return 'Please log out and log back in, then try again.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with this email using a different sign-in method.';
+      case 'sign-in-cancelled':
+      case 'canceled':
+        return '';
       default:
         return 'Something went wrong. Please try again.';
     }

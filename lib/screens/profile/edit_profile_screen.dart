@@ -214,41 +214,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void _confirmAndDelete() {
-    showDialog<String?>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _DeleteAccountDialog(),
-    ).then((password) async {
-      if (password == null || !mounted) return;
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+    final authService = context.read<AuthService>();
+    final isGoogleUser = authService.isGoogleUser;
 
-      // Capture services before any await to avoid BuildContext-across-gap lint.
-      final repo = context.read<UserRepository>();
-      final authService = context.read<AuthService>();
+    if (isGoogleUser) {
+      // Google users: re-authenticate with Google directly (no password dialog).
+      _doDelete(password: null);
+    } else {
+      showDialog<String?>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _DeleteAccountDialog(),
+      ).then((password) async {
+        if (password == null || !mounted) return;
+        _doDelete(password: password);
+      });
+    }
+  }
 
-      setState(() => _saving = true);
-      try {
-        // 1. Delete Firestore data first (while user is still auth'd).
-        await repo.deleteUserData(uid);
-        // 2. Re-auth + delete Firebase Auth user.
-        await authService.deleteAccount(password: password);
-        // 3. Navigate to Register (auth state change would handle it, but
-        //    be explicit so we always reach a clean screen).
-        if (mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const RegisterScreen()),
-            (_) => false,
-          );
-        }
-      } on AuthException catch (e) {
-        if (mounted) _showError(e.message);
-      } catch (_) {
-        if (mounted) _showError('Could not delete account. Please try again.');
-      } finally {
-        if (mounted) setState(() => _saving = false);
+  Future<void> _doDelete({required String? password}) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    // Capture services before any await to avoid BuildContext-across-gap lint.
+    final repo = context.read<UserRepository>();
+    final authService = context.read<AuthService>();
+
+    setState(() => _saving = true);
+    try {
+      // 1. Delete Firestore data first (while user is still auth'd).
+      await repo.deleteUserData(uid);
+      // 2. Re-auth + delete Firebase Auth user.
+      await authService.deleteAccount(password: password);
+      // 3. Navigate to Register (auth state change would handle it, but
+      //    be explicit so we always reach a clean screen).
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const RegisterScreen()),
+          (_) => false,
+        );
       }
-    });
+    } on AuthException catch (e) {
+      if (mounted) _showError(e.message);
+    } catch (_) {
+      if (mounted) _showError('Could not delete account. Please try again.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   void _showError(String msg) {
@@ -452,7 +464,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Change password
+                            // Change password — hidden for Google-only users
+                            if (!context.read<AuthService>().isGoogleUser) ...[
                             InkWell(
                               onTap: _changePassword,
                               borderRadius:
@@ -494,6 +507,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 indent: kSp16 + 38 + kSp12,
                                 endIndent: kSp16,
                                 color: ext.divider),
+                            ],
 
                             // Delete account
                             InkWell(

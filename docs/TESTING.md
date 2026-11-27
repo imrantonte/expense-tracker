@@ -199,3 +199,25 @@ Each row is one test case. **Steps** are numbered; **Expected result** is what y
 - **Budget tests**: it is easiest to set a small limit (e.g. ৳100) and add a ৳90 expense to trigger the 80% threshold.
 - **Firebase emulator**: for repeatable automated testing, consider using the Firebase Local Emulator Suite with `flutter test --dart-define=USE_EMULATOR=true`.
 - **Battery optimisation**: on some Android devices, notifications may be delayed up to 15 minutes in Doze mode. To get reliable delivery during testing, go to **Settings → Apps → Where Did It Go? → Battery → Unrestricted**.
+
+---
+
+### 10. Google Sign-In
+
+> **Prerequisites**: Device has at least one Google account added. Wi-Fi is on.
+
+| # | Steps | Expected result |
+|---|-------|-----------------|
+| 10.1 | On the Login screen, tap **Continue with Google**. | Account picker appears. |
+| 10.2 | On the account picker, press **Back** / dismiss without choosing an account. | Nothing happens. No SnackBar, no error. |
+| 10.3 | Tap **Continue with Google** again, choose a Google account. | Loading spinner shows inside the button. App navigates to the main dashboard. |
+| 10.4 | Go to **Profile → Edit Profile → Security** section. | The **Change Password** row is **hidden** (not visible) for the Google-signed-in user. |
+| 10.5 | In Edit Profile, verify the email field is read-only and shows the Google email. | Email field is non-editable. |
+| 10.6 | On the Register screen, tap **Continue with Google**, choose an account that already has a Firestore user document. | Navigates to dashboard. No duplicate Firestore document is created (open Firebase Console → users → verify only one doc). |
+| 10.7 | Tap **Continue with Google** with no network. | SnackBar: "No internet connection. Please check your network." |
+| 10.8 | Sign in with Google using an email address that also has an email/password account in Firebase. | SnackBar: "An account already exists with this email using a different sign-in method." |
+| 10.9 | Log out from Profile → **Log Out** after a Google sign-in. | Navigates to Login screen. The Google account picker does **not** auto-sign in again (session is cleared). |
+| 10.10 | In Edit Profile, tap **Delete Account** as a Google-only user. | Confirm dialog appears. After confirming, Google account picker re-opens (re-authentication). After choosing the account, account is deleted. App navigates to Register screen. |
+| 10.11 | First Google sign-in with a new account. Check Firebase Console → users/{uid}/categories. | Default categories (Food, Transport, Salary, etc.) are seeded — same as email registration. |
+| 10.12 | On the **Home** / **Profile** screen, verify the avatar for a Google user with no custom photo. | Google profile photo is shown as the avatar (network image). |
+| 10.13 | On Login screen while Google sign-in is loading, verify email/password fields and footer links are non-interactive. | Log In button, Google button, and footer link are all disabled. No double-tap possible. |

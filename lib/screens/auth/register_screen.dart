@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
+import '../../repositories/category_repository.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_gate.dart';
@@ -28,6 +29,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _loading = false;
+  bool _googleLoading = false;
 
   @override
   void dispose() {
@@ -96,8 +98,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  void _googleSignIn() {
-    showAuthSnackBar(context, 'Google sign-in is coming soon.');
+  Future<void> _googleSignIn() async {
+    final catRepo = context.read<CategoryRepository>();
+    setState(() => _googleLoading = true);
+    try {
+      final user = await context.read<AuthService>().signInWithGoogle(
+            onNewUser: (u) => catRepo.seedIfEmpty(u.uid),
+          );
+      if (user == null) return; // user dismissed picker — do nothing
+      if (mounted) _goToAuthGate();
+    } on AuthException catch (e) {
+      if (mounted && e.message.isNotEmpty) {
+        showAuthSnackBar(context, e.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        showAuthSnackBar(context, 'Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _googleLoading = false);
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -107,6 +127,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final ext = Theme.of(context).extension<AppThemeExt>()!;
     final tt = Theme.of(context).textTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final busy = _loading || _googleLoading;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -184,7 +205,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 PrimaryButton(
                   label: 'Create Account',
                   isLoading: _loading,
-                  onPressed: _submit,
+                  onPressed: busy ? () {} : _submit,
                 ),
                 const SizedBox(height: kSp24),
 
@@ -193,7 +214,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: kSp24),
 
                 // ── Google button ─────────────────────────────────────────
-                GoogleButton(onPressed: _loading ? () {} : _googleSignIn),
+                GoogleButton(
+                  onPressed: busy ? () {} : _googleSignIn,
+                  isLoading: _googleLoading,
+                ),
                 const SizedBox(height: kSp32),
 
                 // ── Footer ────────────────────────────────────────────────
@@ -201,7 +225,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: AuthFooterLink(
                     prefix: 'Already have an account?',
                     linkLabel: 'Log in',
-                    onTap: _loading ? () {} : _goToLogin,
+                    onTap: busy ? () {} : _goToLogin,
                   ),
                 ),
                 const SizedBox(height: kSp16),

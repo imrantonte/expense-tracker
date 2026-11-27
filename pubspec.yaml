@@ -36,6 +36,9 @@ dependencies:
   # Profile photo — camera & gallery picker
   image_picker: ^1.1.2
 
+  # Google Sign-In
+  google_sign_in: ^6.2.2
+
   # PDF generation and printing / sharing
   pdf: ^3.11.1
   printing: ^5.13.1

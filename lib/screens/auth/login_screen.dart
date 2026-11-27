@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_theme_ext.dart';
 import '../../core/constants.dart';
+import '../../repositories/category_repository.dart';
 import '../../services/auth_service.dart';
 import '../../widgets/app_text_field.dart';
 import '../../widgets/auth_gate.dart';
@@ -26,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
+  bool _googleLoading = false;
 
   @override
   void dispose() {
@@ -143,8 +145,26 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _googleSignIn() {
-    showAuthSnackBar(context, 'Google sign-in is coming soon.');
+  Future<void> _googleSignIn() async {
+    final catRepo = context.read<CategoryRepository>();
+    setState(() => _googleLoading = true);
+    try {
+      final user = await context.read<AuthService>().signInWithGoogle(
+            onNewUser: (u) => catRepo.seedIfEmpty(u.uid),
+          );
+      if (user == null) return; // user dismissed picker — do nothing
+      if (mounted) _goToAuthGate();
+    } on AuthException catch (e) {
+      if (mounted && e.message.isNotEmpty) {
+        showAuthSnackBar(context, e.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        showAuthSnackBar(context, 'Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _googleLoading = false);
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -155,6 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final busy = _loading || _googleLoading;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -218,7 +239,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: GestureDetector(
-                    onTap: _loading ? null : _forgotPassword,
+                    onTap: busy ? null : _forgotPassword,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: kSp8),
                       child: Text(
@@ -237,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 PrimaryButton(
                   label: 'Log In',
                   isLoading: _loading,
-                  onPressed: _submit,
+                  onPressed: busy ? () {} : _submit,
                 ),
                 const SizedBox(height: kSp24),
 
@@ -246,7 +267,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: kSp24),
 
                 // ── Google button ─────────────────────────────────────────
-                GoogleButton(onPressed: _loading ? () {} : _googleSignIn),
+                GoogleButton(
+                  onPressed: busy ? () {} : _googleSignIn,
+                  isLoading: _googleLoading,
+                ),
                 const SizedBox(height: kSp32),
 
                 // ── Footer ────────────────────────────────────────────────
@@ -254,7 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: AuthFooterLink(
                     prefix: "Don't have an account?",
                     linkLabel: 'Sign up',
-                    onTap: _loading ? () {} : _goToRegister,
+                    onTap: busy ? () {} : _goToRegister,
                   ),
                 ),
                 const SizedBox(height: kSp16),

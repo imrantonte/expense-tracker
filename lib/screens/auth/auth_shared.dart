@@ -69,9 +69,10 @@ class AuthDividerOr extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class GoogleButton extends StatelessWidget {
-  const GoogleButton({super.key, required this.onPressed});
+  const GoogleButton({super.key, required this.onPressed, this.isLoading = false});
 
   final VoidCallback onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -90,24 +91,33 @@ class GoogleButton extends StatelessWidget {
           ),
           backgroundColor: ext.cardBackground,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 22,
-              height: 22,
-              child: CustomPaint(painter: _GoogleGPainter()),
-            ),
-            const SizedBox(width: kSp12),
-            Text(
-              'Continue with Google',
-              style: tt.labelLarge?.copyWith(
-                color: ext.textPrimary,
-                fontWeight: FontWeight.w600,
+        child: isLoading
+            ? SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: ext.textSecondary,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CustomPaint(painter: _GoogleGPainter()),
+                  ),
+                  const SizedBox(width: kSp12),
+                  Text(
+                    'Continue with Google',
+                    style: tt.labelLarge?.copyWith(
+                      color: ext.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
